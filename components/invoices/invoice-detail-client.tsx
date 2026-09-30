@@ -22,30 +22,81 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { PaymentFormDialog } from "@/components/payments/payment-form-dialog";
 import {
   updateInvoiceStatusAction,
   attachInvoicePdfAction,
   regeneratePdfAction,
+  attachInvoiceToContractAction,
 } from "@/actions/invoice.actions";
 import { deletePaymentAction } from "@/actions/payment.actions";
 import { formatCurrency } from "@/lib/financial";
 import { useToast } from "@/components/ui/toast";
 import { format } from "date-fns";
 
-export function InvoiceDetailClient({ invoice }: { invoice: any }) {
+export function InvoiceDetailClient({
+  invoice,
+  availableContracts = [],
+}: {
+  invoice: any;
+  availableContracts?: any[];
+}) {
   const router = useRouter();
   const { toast } = useToast();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const [invoiceData, setInvoiceData] = React.useState(invoice);
+  React.useEffect(() => {
+    setInvoiceData(invoice);
+  }, [invoice]);
 
   const [paymentDialogOpen, setPaymentDialogOpen] = React.useState(false);
   const [isUploadingPdf, setIsUploadingPdf] = React.useState(false);
   const [isRegenerating, setIsRegenerating] = React.useState(false);
 
+  const [attachContractDialogOpen, setAttachContractDialogOpen] = React.useState(false);
+  const [selectedContractId, setSelectedContractId] = React.useState(invoiceData.contractId || "");
+  const [isAttachingContract, setIsAttachingContract] = React.useState(false);
+
+  React.useEffect(() => {
+    setSelectedContractId(invoiceData.contractId || "");
+  }, [invoiceData.contractId]);
+
+  const handleAttachContract = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAttachingContract(true);
+    try {
+      const res = await attachInvoiceToContractAction(
+        invoiceData.id,
+        selectedContractId ? selectedContractId : null
+      );
+      if (res.success && res.invoice) {
+        toast({
+          title: selectedContractId ? "Contract Attached" : "Contract Unlinked",
+          description: selectedContractId
+            ? `Invoice linked to ${res.invoice.contract?.contractNumber || "contract"}.`
+            : "Invoice is now standalone.",
+          type: "success",
+        });
+        setInvoiceData(res.invoice);
+        setAttachContractDialogOpen(false);
+        router.refresh();
+      } else {
+        toast({ title: "Error", description: res.error || "Failed to attach contract", type: "error" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to update contract linkage", type: "error" });
+    } finally {
+      setIsAttachingContract(false);
+    }
+  };
+
   const handleStatusChange = async (newStatus: string) => {
-    const res = await updateInvoiceStatusAction(invoice.id, newStatus);
-    if (res.success) {
+    const res = await updateInvoiceStatusAction(invoiceData.id, newStatus);
+    if (res.success && res.invoice) {
       toast({ title: "Status Updated", description: `Invoice is now ${newStatus}.`, type: "success" });
+      setInvoiceData(res.invoice);
       router.refresh();
     } else {
       toast({ title: "Error", description: res.error, type: "error" });
@@ -200,7 +251,17 @@ export function InvoiceDetailClient({ invoice }: { invoice: any }) {
             </Button>
           )}
 
-          {invoice.status === "Draft" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAttachContractDialogOpen(true)}
+            className="gap-1.5"
+          >
+            <FileCheck className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>{invoiceData.contract ? "Change Contract" : "Attach to Contract"}</span>
+          </Button>
+
+          {invoiceData.status === "Draft" && (
             <Button
               size="sm"
               variant="secondary"
@@ -211,7 +272,7 @@ export function InvoiceDetailClient({ invoice }: { invoice: any }) {
             </Button>
           )}
 
-          {invoice.status !== "Cancelled" && invoice.status !== "Paid" && (
+          {invoiceData.status !== "Cancelled" && invoiceData.status !== "Paid" && (
             <Button
               size="sm"
               variant="ghost"
@@ -359,14 +420,36 @@ export function InvoiceDetailClient({ invoice }: { invoice: any }) {
                 {format(new Date(invoice.dueDate), "dd MMMM yyyy")}
               </span>
             </div>
-            {invoice.contract && (
-              <div>
-                <span className="text-slate-400 uppercase font-semibold text-[10px] block">Contract Reference</span>
-                <Link href={`/contracts/${invoice.contract.id}`} className="font-semibold text-indigo-600 hover:underline">
-                  {invoice.contract.contractNumber} - {invoice.contract.title}
-                </Link>
-              </div>
-            )}
+            <div>
+              <span className="text-slate-400 uppercase font-semibold text-[10px] block">Contract Reference</span>
+              {invoiceData.contract ? (
+                <div className="flex items-center sm:justify-end gap-2">
+                  <Link href={`/contracts/${invoiceData.contract.id}`} className="font-semibold text-indigo-600 hover:underline">
+                    {invoiceData.contract.contractNumber} &bull; {invoiceData.contract.title}
+                  </Link>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 px-1.5 text-[10px] text-slate-400 hover:text-indigo-600"
+                    onClick={() => setAttachContractDialogOpen(true)}
+                  >
+                    Change
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center sm:justify-end gap-2 mt-0.5">
+                  <span className="text-slate-400 italic">No contract linked</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-[11px] gap-1 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950"
+                    onClick={() => setAttachContractDialogOpen(true)}
+                  >
+                    <FileCheck className="h-3 w-3" /> Attach to Contract
+                  </Button>
+                </div>
+              )}
+            </div>
             {invoice.billingPeriodStart && invoice.billingPeriodEnd && (
               <div>
                 <span className="text-slate-400 uppercase font-semibold text-[10px] block">Billing Period</span>
@@ -526,11 +609,74 @@ export function InvoiceDetailClient({ invoice }: { invoice: any }) {
       <PaymentFormDialog
         open={paymentDialogOpen}
         onOpenChange={setPaymentDialogOpen}
-        invoiceId={invoice.id}
-        invoiceNumber={invoice.invoiceNumber}
-        defaultAmount={invoice.remainingBalance || invoice.total}
-        currency={invoice.currency}
+        invoiceId={invoiceData.id}
+        invoiceNumber={invoiceData.invoiceNumber}
+        defaultAmount={invoiceData.remainingBalance || invoiceData.total}
+        currency={invoiceData.currency}
       />
+
+      {/* Attach to Contract Modal */}
+      <Dialog open={attachContractDialogOpen} onOpenChange={setAttachContractDialogOpen}>
+        <DialogHeader>
+          <DialogTitle>Attach to Client Contract</DialogTitle>
+          <DialogDescription>
+            Link Invoice #{invoiceData.invoiceNumber} to an existing contract agreement for {invoiceData.client?.companyName}.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleAttachContract} className="space-y-4 pt-2">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              Contract Agreement
+            </label>
+            {availableContracts.length === 0 ? (
+              <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center space-y-2 bg-slate-50/50 dark:bg-slate-900/50">
+                <FileCheck className="h-6 w-6 text-slate-400 mx-auto" />
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  No active contracts found for <strong>{invoiceData.client?.companyName}</strong>.
+                </p>
+                <Link
+                  href="/contracts"
+                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-semibold inline-block"
+                >
+                  Create a new contract under Contracts &rarr;
+                </Link>
+              </div>
+            ) : (
+              <select
+                value={selectedContractId}
+                onChange={(e) => setSelectedContractId(e.target.value)}
+                className="w-full h-10 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500"
+              >
+                <option value="">No contract (Standalone Invoice)</option>
+                {availableContracts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.contractNumber} &bull; {c.title} ({formatCurrency(c.amount, c.currency)} / {c.billingFrequency})
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="text-[11px] text-slate-400">
+              Linking updates contract revenue tracking, lifetime billing history, and contract attachments.
+            </p>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button type="button" variant="outline" onClick={() => setAttachContractDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              isLoading={isAttachingContract}
+              disabled={availableContracts.length === 0 && !selectedContractId}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
+              <CheckCircle2 className="h-4 w-4 mr-1.5" />
+              {selectedContractId ? "Attach to Contract" : "Unlink Contract"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
     </div>
   );
 }

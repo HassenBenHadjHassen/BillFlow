@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { saveInvoiceAction } from "@/actions/invoice.actions";
 import { useToast } from "@/components/ui/toast";
-import { roundMoney } from "@/lib/financial";
+import { formatCurrency, roundMoney } from "@/lib/financial";
 import { ClientDTO } from "@/types";
 import { UploadCloud, FileText, CheckCircle2, X } from "lucide-react";
 
@@ -15,6 +15,7 @@ interface InvoiceFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   clients?: ClientDTO[];
+  contracts?: any[];
   preselectedClientId?: string;
   preselectedContractId?: string;
   onSuccess?: (invoice: any) => void;
@@ -24,6 +25,7 @@ export function InvoiceFormDialog({
   open,
   onOpenChange,
   clients = [],
+  contracts = [],
   preselectedClientId,
   preselectedContractId,
   onSuccess,
@@ -244,6 +246,37 @@ export function InvoiceFormDialog({
               className="font-mono text-sm"
             />
           </div>
+        </div>
+
+        {/* Linked Contract (Optional) */}
+        <div className="space-y-1">
+          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            Linked Contract (Optional)
+          </label>
+          <select
+            value={contractId}
+            onChange={(e) => {
+              const val = e.target.value;
+              setContractId(val);
+              if (val) {
+                const found = contracts.find((c) => c.id === val);
+                if (found) {
+                  handleSubtotalChange(String(found.amount));
+                  setCurrency(found.currency || "EUR");
+                }
+              }
+            }}
+            className="w-full h-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500"
+          >
+            <option value="">No linked contract (Standalone Invoice)</option>
+            {contracts
+              .filter((c) => !clientId || c.clientId === clientId)
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.contractNumber} &bull; {c.title} ({formatCurrency(c.amount, c.currency)} / {c.billingFrequency})
+                </option>
+              ))}
+          </select>
         </div>
 
         {/* Dates */}

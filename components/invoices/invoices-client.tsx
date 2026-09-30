@@ -14,9 +14,11 @@ import { ClientDTO } from "@/types";
 export function InvoicesClient({
   initialInvoices,
   clients = [],
+  contracts = [],
 }: {
   initialInvoices: any[];
   clients?: ClientDTO[];
+  contracts?: any[];
 }) {
   const [invoices, setInvoices] = React.useState<any[]>(initialInvoices);
   const [search, setSearch] = React.useState("");
@@ -240,6 +242,7 @@ export function InvoicesClient({
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         clients={clients}
+        contracts={contracts}
         onSuccess={(newInv) => {
           setInvoices((prev) => [newInv, ...prev.filter((i) => i.id !== newInv.id)]);
         }}

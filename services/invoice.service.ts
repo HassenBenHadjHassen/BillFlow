@@ -314,6 +314,66 @@ export class InvoiceService {
     return uploaded.fileUrl;
   }
 
+  /**
+   * Attaches or links an existing invoice to a contract
+   */
+  static async attachToContract(invoiceId: string, contractId: string | null) {
+    const invoice = await db.invoice.findUnique({
+      where: { id: invoiceId },
+    });
+    if (!invoice) throw new Error("Invoice not found");
+
+    if (contractId) {
+      const contract = await db.contract.findUnique({
+        where: { id: contractId },
+      });
+      if (!contract) throw new Error("Contract not found");
+    }
+
+    const updated = await db.$transaction(async (tx) => {
+      const inv = await tx.invoice.update({
+        where: { id: invoiceId },
+        data: { contractId: contractId || null },
+        include: {
+          client: true,
+          contract: true,
+          items: true,
+          payments: {
+            orderBy: { paymentDate: "desc" },
+          },
+          documents: {
+            orderBy: { uploadedAt: "desc" },
+          },
+        },
+      });
+
+      // Also update any attached Document records for this invoice to point to the contract
+      if (contractId) {
+        await tx.document.updateMany({
+          where: { invoiceId: invoiceId },
+          data: { contractId: contractId },
+        });
+      }
+
+      return inv;
+    });
+
+    const paid = updated.payments.reduce((sum, p) => sum + p.amount, 0);
+    const paymentCalc = calculateInvoicePaymentStatus(
+      updated.total,
+      paid,
+      updated.dueDate,
+      updated.status
+    );
+
+    return {
+      ...updated,
+      amountPaid: paymentCalc.amountPaid,
+      remainingBalance: paymentCalc.remainingBalance,
+      computedStatus: paymentCalc.status,
+    };
+  }
+
   static async createInvoice(data: InvoiceInput, options?: { autoSend?: boolean }) {
     // 1. Authoritative server-side calculation
     const totals = calculateInvoiceTotals(data.items);

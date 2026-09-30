@@ -132,3 +132,19 @@ export async function archiveInvoiceAction(id: string) {
     return { success: false, error: (err as Error).message };
   }
 }
+
+export async function attachInvoiceToContractAction(invoiceId: string, contractId: string | null) {
+  await requireAuth();
+  try {
+    const invoice = await InvoiceService.attachToContract(invoiceId, contractId);
+    revalidatePath(`/invoices/${invoiceId}`);
+    revalidatePath("/invoices");
+    if (contractId) revalidatePath(`/contracts/${contractId}`);
+    revalidatePath(`/clients/${invoice.clientId}`);
+    revalidatePath("/dashboard");
+    revalidatePath("/reports");
+    return { success: true, invoice };
+  } catch (err: unknown) {
+    return { success: false, error: (err as Error).message };
+  }
+}
