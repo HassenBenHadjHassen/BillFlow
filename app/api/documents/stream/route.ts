@@ -34,15 +34,22 @@ export async function GET(request: NextRequest) {
 
     const contentType = mimeTypes[ext] || "application/octet-stream";
 
+    // Sanitize filename for HTTP header to prevent CRLF injection or header manipulation
+    const rawFileName = path.basename(filePath);
+    const safeHeaderFileName = rawFileName.replace(/[\r\n"\\]/g, "_").replace(/[^a-zA-Z0-9._-]/g, "_");
+
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${path.basename(filePath)}"`,
+        "Content-Disposition": `inline; filename="${safeHeaderFileName}"; filename*=UTF-8''${encodeURIComponent(safeHeaderFileName)}`,
         "Cache-Control": "private, max-age=3600",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "SAMEORIGIN",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
       },
     });
   } catch (err: unknown) {
     console.error("Document streaming error:", err);
-    return new NextResponse("File not found", { status: 404 });
+    return new NextResponse("File not found or access denied", { status: 404 });
   }
 }
