@@ -594,6 +594,29 @@ export function InvoiceForm({
                 )}
               </div>
 
+              {status === "Paid" && (
+                <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-emerald-900 dark:text-emerald-200">
+                      Got Paid At (Payment Date) *
+                    </label>
+                    <span className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                      Actual receipt date in bank account
+                    </span>
+                  </div>
+                  <Input
+                    type="date"
+                    required
+                    value={paymentDate}
+                    onChange={(e) => setPaymentDate(e.target.value)}
+                    className="bg-white dark:bg-slate-900 border-emerald-300 dark:border-emerald-700 text-sm"
+                  />
+                  <p className="text-[11px] text-emerald-700/90 dark:text-emerald-400/90">
+                    Useful when you sent the invoice at month end (e.g. 30th) but received the funds at the start of next month (e.g. 2nd).
+                  </p>
+                </div>
+              )}
+
               {/* Optional Billing Period (for Retainers) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">

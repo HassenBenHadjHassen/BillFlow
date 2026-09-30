@@ -111,13 +111,16 @@ export function PaymentFormDialog({
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Payment Date *</label>
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              Got Paid At (Payment Date) *
+            </label>
             <Input
               type="date"
               required
               value={paymentDate}
               onChange={(e) => setPaymentDate(e.target.value)}
             />
+            <p className="text-[10px] text-slate-400">Date funds arrived (e.g. sent end of month, paid at start)</p>
           </div>
 
           <div className="space-y-1">

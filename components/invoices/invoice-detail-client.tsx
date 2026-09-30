@@ -29,8 +29,9 @@ import {
   attachInvoicePdfAction,
   regeneratePdfAction,
   attachInvoiceToContractAction,
+  updateInvoicePaymentDateAction,
 } from "@/actions/invoice.actions";
-import { deletePaymentAction } from "@/actions/payment.actions";
+import { deletePaymentAction, updatePaymentDateAction } from "@/actions/payment.actions";
 import { formatCurrency } from "@/lib/financial";
 import { useToast } from "@/components/ui/toast";
 import { format } from "date-fns";
@@ -59,9 +60,57 @@ export function InvoiceDetailClient({
   const [selectedContractId, setSelectedContractId] = React.useState(invoiceData.contractId || "");
   const [isAttachingContract, setIsAttachingContract] = React.useState(false);
 
+  const [editPaymentDateDialogOpen, setEditPaymentDateDialogOpen] = React.useState(false);
+  const [editPaymentDateValue, setEditPaymentDateValue] = React.useState(
+    invoiceData.paymentDate
+      ? format(new Date(invoiceData.paymentDate), "yyyy-MM-dd")
+      : format(new Date(), "yyyy-MM-dd")
+  );
+  const [editingPaymentId, setEditingPaymentId] = React.useState<string | null>(null);
+  const [isUpdatingPaymentDate, setIsUpdatingPaymentDate] = React.useState(false);
+
   React.useEffect(() => {
     setSelectedContractId(invoiceData.contractId || "");
   }, [invoiceData.contractId]);
+
+  const handleSavePaymentDate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUpdatingPaymentDate(true);
+    try {
+      if (editingPaymentId) {
+        const res = await updatePaymentDateAction(editingPaymentId, editPaymentDateValue, invoiceData.id);
+        if (res.success) {
+          toast({
+            title: "Payment Date Updated",
+            description: `Payment date set to ${format(new Date(editPaymentDateValue), "dd MMMM yyyy")}.`,
+            type: "success",
+          });
+          setEditPaymentDateDialogOpen(false);
+          router.refresh();
+        } else {
+          toast({ title: "Error", description: res.error || "Failed to update payment date", type: "error" });
+        }
+      } else {
+        const res = await updateInvoicePaymentDateAction(invoiceData.id, editPaymentDateValue);
+        if (res.success && res.invoice) {
+          toast({
+            title: "Got Paid Date Updated",
+            description: `Invoice marked as paid on ${format(new Date(editPaymentDateValue), "dd MMMM yyyy")}.`,
+            type: "success",
+          });
+          setInvoiceData(res.invoice);
+          setEditPaymentDateDialogOpen(false);
+          router.refresh();
+        } else {
+          toast({ title: "Error", description: res.error || "Failed to update payment date", type: "error" });
+        }
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to update payment date", type: "error" });
+    } finally {
+      setIsUpdatingPaymentDate(false);
+    }
+  };
 
   const handleAttachContract = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,6 +269,28 @@ export function InvoiceDetailClient({
               className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
             >
               <CreditCard className="h-4 w-4" /> Record Payment
+            </Button>
+          )}
+
+          {(invoiceData.status === "Paid" || invoiceData.paymentDate) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditingPaymentId(null);
+                setEditPaymentDateValue(
+                  invoiceData.paymentDate
+                    ? format(new Date(invoiceData.paymentDate), "yyyy-MM-dd")
+                    : format(new Date(), "yyyy-MM-dd")
+                );
+                setEditPaymentDateDialogOpen(true);
+              }}
+              className="gap-1.5 text-xs text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+            >
+              <Calendar className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>
+                Got Paid: {invoiceData.paymentDate ? format(new Date(invoiceData.paymentDate), "dd MMM yyyy") : "Set Date"}
+              </span>
             </Button>
           )}
 
@@ -421,6 +492,51 @@ export function InvoiceDetailClient({
               </span>
             </div>
             <div>
+              <span className="text-slate-400 uppercase font-semibold text-[10px] block">Got Paid At</span>
+              {(invoiceData.paymentDate || invoiceData.status === "Paid") ? (
+                <div className="flex items-center sm:justify-end gap-1.5 mt-0.5">
+                  <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400 text-sm">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {invoiceData.paymentDate
+                      ? format(new Date(invoiceData.paymentDate), "dd MMMM yyyy")
+                      : "Paid"}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setEditingPaymentId(null);
+                      setEditPaymentDateValue(
+                        invoiceData.paymentDate
+                          ? format(new Date(invoiceData.paymentDate), "yyyy-MM-dd")
+                          : format(new Date(), "yyyy-MM-dd")
+                      );
+                      setEditPaymentDateDialogOpen(true);
+                    }}
+                    className="h-5 px-1.5 text-[10px] text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950 font-medium"
+                  >
+                    Change
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center sm:justify-end gap-1.5 mt-0.5">
+                  <span className="text-slate-400 italic">Not paid yet</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setEditingPaymentId(null);
+                      setEditPaymentDateValue(format(new Date(), "yyyy-MM-dd"));
+                      setEditPaymentDateDialogOpen(true);
+                    }}
+                    className="h-5 px-1.5 text-[10px] text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950 font-medium"
+                  >
+                    Set Date
+                  </Button>
+                </div>
+              )}
+            </div>
+            <div>
               <span className="text-slate-400 uppercase font-semibold text-[10px] block">Contract Reference</span>
               {invoiceData.contract ? (
                 <div className="flex items-center sm:justify-end gap-2">
@@ -587,14 +703,29 @@ export function InvoiceDetailClient({
                         +{formatCurrency(p.amount, invoice.currency)}
                       </td>
                       <td className="py-3 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDeletePayment(p.id)}
-                          className="h-7 w-7 text-slate-400 hover:text-rose-600"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Change Payment Date (Got Paid At)"
+                            onClick={() => {
+                              setEditingPaymentId(p.id);
+                              setEditPaymentDateValue(format(new Date(p.paymentDate), "yyyy-MM-dd"));
+                              setEditPaymentDateDialogOpen(true);
+                            }}
+                            className="h-7 w-7 text-slate-400 hover:text-emerald-600"
+                          >
+                            <Calendar className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeletePayment(p.id)}
+                            className="h-7 w-7 text-slate-400 hover:text-rose-600"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -673,6 +804,67 @@ export function InvoiceDetailClient({
             >
               <CheckCircle2 className="h-4 w-4 mr-1.5" />
               {selectedContractId ? "Attach to Contract" : "Unlink Contract"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
+
+      {/* Edit Payment Date (Got Paid At) Dialog */}
+      <Dialog open={editPaymentDateDialogOpen} onOpenChange={setEditPaymentDateDialogOpen}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            {editingPaymentId ? "Change Payment Date" : "Set Got Paid At Date"}
+          </DialogTitle>
+          <DialogDescription>
+            {editingPaymentId
+              ? "Update the date this specific payment was received. This affects revenue reports and cash flow."
+              : "Set the exact date you received this payment. Useful when the invoice was sent at month end but paid at the start of the next month."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSavePaymentDate} className="space-y-4 pt-2">
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              Got Paid At (Payment Date) *
+            </label>
+            <input
+              type="date"
+              required
+              value={editPaymentDateValue}
+              onChange={(e) => setEditPaymentDateValue(e.target.value)}
+              className="w-full h-10 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 px-3 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-emerald-500 transition-colors"
+            />
+            <p className="text-[11px] text-slate-400">
+              Example: Invoice issued 30th September → payment arrives 2nd October → set "2 October" here.
+              Reports and revenue will correctly reflect the actual cash receipt date.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+            <p className="text-[11px] text-emerald-800 dark:text-emerald-200">
+              {editingPaymentId
+                ? "This will update the payment record date and sync the invoice payment date."
+                : "This will mark the invoice as Paid and set the payment date accordingly."}
+            </p>
+          </div>
+
+          <DialogFooter className="pt-1">
+            <button
+              type="button"
+              onClick={() => setEditPaymentDateDialogOpen(false)}
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <Button
+              type="submit"
+              isLoading={isUpdatingPaymentDate}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              Save Date
             </Button>
           </DialogFooter>
         </form>

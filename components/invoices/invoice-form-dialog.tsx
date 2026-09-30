@@ -369,31 +369,41 @@ export function InvoiceFormDialog({
 
         {/* Paid details */}
         {status === "Paid" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Payment Date</label>
-              <Input
-                type="date"
-                value={paymentDate}
-                onChange={(e) => setPaymentDate(e.target.value)}
-                className="text-sm h-8"
-              />
+          <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-emerald-900 dark:text-emerald-200">
+                  Got Paid At (Payment Date) *
+                </label>
+                <Input
+                  type="date"
+                  required
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  className="text-sm h-8 bg-white dark:bg-slate-900 border-emerald-300 dark:border-emerald-700"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-emerald-900 dark:text-emerald-200">
+                  Payment Method
+                </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className="w-full h-8 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 px-2 text-xs text-slate-900 dark:text-slate-100 outline-none"
+                >
+                  <option value="BankTransfer">Bank Transfer (SEPA / Wire)</option>
+                  <option value="CreditCard">Credit / Debit Card</option>
+                  <option value="Stripe">Stripe Checkout</option>
+                  <option value="Check">Bank Check</option>
+                  <option value="Cash">Cash Settlement</option>
+                  <option value="Other">Other Method</option>
+                </select>
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Payment Method</label>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-full h-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs text-slate-900 dark:text-slate-100 outline-none"
-              >
-                <option value="BankTransfer">Bank Transfer (SEPA / Wire)</option>
-                <option value="CreditCard">Credit / Debit Card</option>
-                <option value="Stripe">Stripe Checkout</option>
-                <option value="Check">Bank Check</option>
-                <option value="Cash">Cash Settlement</option>
-                <option value="Other">Other Method</option>
-              </select>
-            </div>
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+              Set the exact date the money arrived in your account (e.g. invoice issued end of month, paid at start of next month).
+            </p>
           </div>
         )}
 

@@ -92,6 +92,8 @@ export const SaveInvoiceSchema = z.object({
   taxAmount: z.coerce.number().min(0).default(0),
   total: z.coerce.number().min(0, "Total amount must be at least 0"),
   status: z.enum(["Draft", "Sent", "Paid", "PartiallyPaid", "Overdue", "Cancelled"]).default("Sent"),
+  paymentDate: z.string().optional().nullable(),
+  paymentMethod: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   billingPeriodStart: z.string().optional().nullable(),
   billingPeriodEnd: z.string().optional().nullable(),
@@ -120,6 +122,18 @@ export const PaymentSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 export type PaymentInput = z.infer<typeof PaymentSchema>;
+
+export const UpdateInvoicePaymentDateSchema = z.object({
+  invoiceId: z.string().min(1, "Invoice ID is required"),
+  paymentDate: z.string().min(1, "Payment date is required"),
+});
+export type UpdateInvoicePaymentDateInput = z.infer<typeof UpdateInvoicePaymentDateSchema>;
+
+export const UpdatePaymentDateSchema = z.object({
+  paymentId: z.string().min(1, "Payment ID is required"),
+  paymentDate: z.string().min(1, "Payment date is required"),
+});
+export type UpdatePaymentDateInput = z.infer<typeof UpdatePaymentDateSchema>;
 
 export const CompanySettingsSchema = z.object({
   companyName: z.string().min(2, "Company name is required"),

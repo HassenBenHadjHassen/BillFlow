@@ -1,7 +1,7 @@
 "use server";
 
 import { requireAuth } from "@/lib/auth";
-import { InvoiceSchema, SaveInvoiceSchema } from "@/schemas";
+import { InvoiceSchema, SaveInvoiceSchema, UpdateInvoicePaymentDateSchema } from "@/schemas";
 import { InvoiceService } from "@/services/invoice.service";
 import { revalidatePath } from "next/cache";
 
@@ -33,13 +33,17 @@ export async function saveInvoiceAction(input: unknown) {
     return { success: false, error: parse.error.errors[0]?.message || "Validation failed" };
   }
 
+  const paymentDate = parse.data.paymentDate || (rawData.paymentDate as string) || undefined;
+  const paymentMethod = parse.data.paymentMethod || (rawData.paymentMethod as string) || undefined;
+
   try {
     const invoice = await InvoiceService.saveInvoiceWithFile(
       parse.data,
       fileInfo,
       {
         markAsPaid: parse.data.status === "Paid",
-        paymentDate: parse.data.issueDate,
+        paymentDate: paymentDate || parse.data.issueDate,
+        paymentMethod: paymentMethod || "BankTransfer",
       }
     );
     revalidatePath("/invoices");
@@ -143,6 +147,28 @@ export async function attachInvoiceToContractAction(invoiceId: string, contractI
     revalidatePath(`/clients/${invoice.clientId}`);
     revalidatePath("/dashboard");
     revalidatePath("/reports");
+    return { success: true, invoice };
+  } catch (err: unknown) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+export async function updateInvoicePaymentDateAction(invoiceId: string, paymentDate: string) {
+  await requireAuth();
+  const parse = UpdateInvoicePaymentDateSchema.safeParse({ invoiceId, paymentDate });
+  if (!parse.success) {
+    return { success: false, error: parse.error.errors[0]?.message || "Validation failed" };
+  }
+
+  try {
+    const invoice = await InvoiceService.updatePaymentDate(parse.data.invoiceId, parse.data.paymentDate);
+    revalidatePath(`/invoices/${invoiceId}`);
+    revalidatePath("/invoices");
+    revalidatePath("/payments");
+    revalidatePath("/dashboard");
+    revalidatePath("/reports");
+    revalidatePath(`/clients/${invoice.clientId}`);
+    if (invoice.contractId) revalidatePath(`/contracts/${invoice.contractId}`);
     return { success: true, invoice };
   } catch (err: unknown) {
     return { success: false, error: (err as Error).message };

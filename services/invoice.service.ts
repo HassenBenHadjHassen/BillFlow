@@ -172,6 +172,10 @@ export class InvoiceService {
         initialStatus = "Paid";
       }
 
+      const chosenPaymentDate = options?.paymentDate
+        ? new Date(options.paymentDate)
+        : (data.paymentDate ? new Date(data.paymentDate) : issueDate);
+
       // 4. Create the invoice record
       const invoice = await tx.invoice.create({
         data: {
@@ -186,7 +190,7 @@ export class InvoiceService {
           taxAmount,
           total,
           status: initialStatus,
-          paymentDate: initialStatus === "Paid" ? new Date(options?.paymentDate || data.issueDate) : null,
+          paymentDate: initialStatus === "Paid" ? chosenPaymentDate : null,
           notes: data.notes || null,
           pdfUrl,
           billingPeriodStart: data.billingPeriodStart ? new Date(data.billingPeriodStart) : null,
@@ -222,8 +226,8 @@ export class InvoiceService {
           data: {
             invoiceId: invoice.id,
             amount: total,
-            paymentDate: new Date(options?.paymentDate || data.issueDate),
-            paymentMethod: options?.paymentMethod || "BankTransfer",
+            paymentDate: chosenPaymentDate,
+            paymentMethod: options?.paymentMethod || data.paymentMethod || "BankTransfer",
             notes: "Recorded on invoice upload",
           },
         });
@@ -372,6 +376,75 @@ export class InvoiceService {
       remainingBalance: paymentCalc.remainingBalance,
       computedStatus: paymentCalc.status,
     };
+  }
+
+  /**
+   * Updates or sets the payment date ("got paid at") for an existing invoice.
+   * Also synchronizes the invoice's payments ledger so reports and dashboard reflect the correct cash flow date.
+   */
+  static async updatePaymentDate(invoiceId: string, paymentDateInput: string | Date) {
+    const paymentDate = new Date(paymentDateInput);
+    if (isNaN(paymentDate.getTime())) {
+      throw new Error("Invalid payment date");
+    }
+
+    return db.$transaction(async (tx) => {
+      const invoice = await tx.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { payments: { orderBy: { paymentDate: "desc" } } },
+      });
+
+      if (!invoice) throw new Error("Invoice not found");
+
+      // 1. If invoice has payments, update the latest payment's date
+      if (invoice.payments.length > 0) {
+        await tx.payment.update({
+          where: { id: invoice.payments[0].id },
+          data: { paymentDate },
+        });
+      } else {
+        // If invoice was marked Paid but has no payment record, create one
+        await tx.payment.create({
+          data: {
+            invoiceId: invoice.id,
+            amount: invoice.total,
+            paymentDate,
+            paymentMethod: "BankTransfer",
+            notes: "Payment recorded",
+          },
+        });
+      }
+
+      // 2. Update invoice's paymentDate and ensure status is Paid
+      const updated = await tx.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          paymentDate,
+          status: "Paid",
+        },
+        include: {
+          client: true,
+          contract: true,
+          payments: { orderBy: { paymentDate: "desc" } },
+          items: true,
+        },
+      });
+
+      const paid = updated.payments.reduce((sum, p) => sum + p.amount, 0);
+      const paymentCalc = calculateInvoicePaymentStatus(
+        updated.total,
+        paid,
+        updated.dueDate,
+        updated.status
+      );
+
+      return {
+        ...updated,
+        amountPaid: paymentCalc.amountPaid,
+        remainingBalance: paymentCalc.remainingBalance,
+        computedStatus: paymentCalc.status,
+      };
+    });
   }
 
   static async createInvoice(data: InvoiceInput, options?: { autoSend?: boolean }) {

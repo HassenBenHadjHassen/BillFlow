@@ -92,6 +92,46 @@ export class PaymentService {
     });
   }
 
+  /**
+   * Updates the payment date ("got paid at") for a specific payment and keeps invoice in sync
+   */
+  static async updatePaymentDate(paymentId: string, paymentDateInput: string | Date) {
+    const paymentDate = new Date(paymentDateInput);
+    if (isNaN(paymentDate.getTime())) {
+      throw new Error("Invalid payment date");
+    }
+
+    return db.$transaction(async (tx) => {
+      const payment = await tx.payment.findUnique({
+        where: { id: paymentId },
+        include: {
+          invoice: {
+            include: {
+              payments: { orderBy: { paymentDate: "desc" } },
+            },
+          },
+        },
+      });
+
+      if (!payment) throw new Error("Payment not found");
+
+      const updatedPayment = await tx.payment.update({
+        where: { id: paymentId },
+        data: { paymentDate },
+      });
+
+      // Update the invoice's paymentDate if this payment is the latest or if fully paid
+      if (payment.invoice.status === "Paid" || !payment.invoice.paymentDate) {
+        await tx.invoice.update({
+          where: { id: payment.invoiceId },
+          data: { paymentDate },
+        });
+      }
+
+      return updatedPayment;
+    });
+  }
+
   static async getPayments(invoiceId?: string) {
     return db.payment.findMany({
       where: invoiceId ? { invoiceId } : undefined,
