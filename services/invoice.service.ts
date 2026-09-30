@@ -195,6 +195,7 @@ export class InvoiceService {
         include: {
           client: true,
           contract: true,
+          payments: true,
         },
       });
 
@@ -252,7 +253,20 @@ export class InvoiceService {
         }
       }
 
-      return invoice;
+      const paid = initialStatus === "Paid" ? total : 0;
+      const paymentCalc = calculateInvoicePaymentStatus(
+        invoice.total,
+        paid,
+        invoice.dueDate,
+        invoice.status
+      );
+
+      return {
+        ...invoice,
+        amountPaid: paymentCalc.amountPaid,
+        remainingBalance: paymentCalc.remainingBalance,
+        computedStatus: paymentCalc.status,
+      };
     });
   }
 

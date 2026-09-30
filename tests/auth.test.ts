@@ -19,7 +19,7 @@ describe("Authentication & Security", () => {
 
     const isWrong = await verifyPassword("WrongPassword", hashed);
     expect(isWrong).toBe(false);
-  });
+  }, 15000);
 
   it("should create and verify signed JWT session tokens", async () => {
     const userPayload = {

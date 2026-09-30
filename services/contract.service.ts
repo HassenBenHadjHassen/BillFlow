@@ -204,6 +204,10 @@ export class ContractService {
           notes: data.notes || null,
           fileUrl,
         },
+        include: {
+          client: true,
+          recurringBilling: true,
+        },
       });
 
       if (fileUrl && storagePath) {
@@ -234,7 +238,14 @@ export class ContractService {
         });
       }
 
-      return contract;
+      const expiration = this.getExpirationInfo(contract.endDate, contract.status);
+      return {
+        ...contract,
+        totalInvoiced: 0,
+        totalPaid: 0,
+        invoices: [],
+        expiration,
+      };
     });
   }
 

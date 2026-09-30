@@ -14,6 +14,7 @@ interface ContractFormDialogProps {
   onOpenChange: (open: boolean) => void;
   clients?: ClientDTO[];
   preselectedClientId?: string;
+  onSuccess?: (contract: any) => void;
 }
 
 export function ContractFormDialog({
@@ -21,6 +22,7 @@ export function ContractFormDialog({
   onOpenChange,
   clients = [],
   preselectedClientId,
+  onSuccess,
 }: ContractFormDialogProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -86,8 +88,9 @@ export function ContractFormDialog({
 
     try {
       const res = await createContractAction(formData);
-      if (res.success) {
+      if (res.success && res.contract) {
         toast({ title: "Contract Saved", description: `${title} has been recorded.`, type: "success" });
+        onSuccess?.(res.contract);
         onOpenChange(false);
         router.refresh();
       } else {

@@ -18,10 +18,14 @@ export function ContractsClient({
   initialContracts: any[];
   clients: ClientDTO[];
 }) {
-  const [contracts] = React.useState<any[]>(initialContracts);
+  const [contracts, setContracts] = React.useState<any[]>(initialContracts);
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("ALL");
   const [dialogOpen, setDialogOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    setContracts(initialContracts);
+  }, [initialContracts]);
 
   const filtered = contracts.filter((c) => {
     const q = search.toLowerCase();
@@ -198,6 +202,9 @@ export function ContractsClient({
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         clients={clients}
+        onSuccess={(newContract) => {
+          setContracts((prev) => [newContract, ...prev.filter((c) => c.id !== newContract.id)]);
+        }}
       />
     </div>
   );

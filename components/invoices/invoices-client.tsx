@@ -6,20 +6,34 @@ import { Receipt, Plus, Search, Filter, ChevronRight, FileText } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { InvoiceFormDialog } from "@/components/invoices/invoice-form-dialog";
 import { formatCurrency } from "@/lib/financial";
 import { format } from "date-fns";
+import { ClientDTO } from "@/types";
 
-export function InvoicesClient({ initialInvoices }: { initialInvoices: any[] }) {
-  const [invoices] = React.useState<any[]>(initialInvoices);
+export function InvoicesClient({
+  initialInvoices,
+  clients = [],
+}: {
+  initialInvoices: any[];
+  clients?: ClientDTO[];
+}) {
+  const [invoices, setInvoices] = React.useState<any[]>(initialInvoices);
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("ALL");
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+
+  // Keep state synchronized with server revalidation
+  React.useEffect(() => {
+    setInvoices(initialInvoices);
+  }, [initialInvoices]);
 
   const filtered = invoices.filter((inv) => {
     const q = search.toLowerCase();
     const matchesSearch =
       inv.invoiceNumber.toLowerCase().includes(q) ||
-      inv.client.companyName.toLowerCase().includes(q) ||
-      (inv.contract && inv.contract.title.toLowerCase().includes(q));
+      inv.client?.companyName?.toLowerCase().includes(q) ||
+      (inv.contract && inv.contract.title?.toLowerCase().includes(q));
 
     const matchesStatus =
       statusFilter === "ALL" ||
@@ -60,12 +74,20 @@ export function InvoicesClient({ initialInvoices }: { initialInvoices: any[] }) 
           </p>
         </div>
 
-        <Link href="/invoices/new">
-          <Button className="gap-2 shadow-sm bg-indigo-600 hover:bg-indigo-700 text-white">
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => setDialogOpen(true)}
+            className="gap-2 shadow-sm bg-indigo-600 hover:bg-indigo-700 text-white"
+          >
             <Plus className="h-4 w-4" />
             <span>Record Invoice</span>
           </Button>
-        </Link>
+          <Link href="/invoices/new">
+            <Button variant="outline" size="sm" className="hidden sm:inline-flex text-xs">
+              Full Page
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -81,12 +103,12 @@ export function InvoicesClient({ initialInvoices }: { initialInvoices: any[] }) 
           />
         </div>
 
-        {/* Status Filter Pills */}
+        {/* Status Pills */}
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           {[
             { label: "All", value: "ALL" },
             { label: "Paid", value: "Paid" },
-            { label: "Sent", value: "Sent" },
+            { label: "Sent / Pending", value: "Sent" },
             { label: "Partially Paid", value: "PartiallyPaid" },
             { label: "Overdue", value: "Overdue" },
             { label: "Draft", value: "Draft" },
@@ -106,81 +128,98 @@ export function InvoicesClient({ initialInvoices }: { initialInvoices: any[] }) 
         </div>
       </div>
 
-      {/* Invoices List / Table */}
+      {/* Invoices Table */}
       {filtered.length === 0 ? (
         <Card className="p-12 text-center">
-          <Receipt className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-slate-900 dark:text-white">No invoices found</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            {search ? "No invoices match your filter criteria." : "Create your first invoice to bill a client."}
+          <Receipt className="h-10 w-10 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
+          <h3 className="font-semibold text-slate-800 dark:text-slate-200">No invoices found</h3>
+          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+            {search || statusFilter !== "ALL"
+              ? "Try adjusting your search criteria or status filter."
+              : "Record your first client invoice or upload a signed PDF to begin tracking billing."}
           </p>
+          {!search && statusFilter === "ALL" && (
+            <Button onClick={() => setDialogOpen(true)} className="mt-4 gap-1.5">
+              <Plus className="h-4 w-4" />
+              <span>Record Invoice</span>
+            </Button>
+          )}
         </Card>
       ) : (
-        <Card className="overflow-hidden border border-slate-200 dark:border-slate-800">
+        <Card className="overflow-hidden border border-slate-200 dark:border-slate-800 shadow-xs">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs sm:text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-900/75 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+            <table className="w-full text-left text-xs text-slate-600 dark:text-slate-400">
+              <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-500 uppercase">
+                <tr>
                   <th className="py-3 px-4">Invoice #</th>
                   <th className="py-3 px-4">Client</th>
-                  <th className="py-3 px-4">Dates</th>
-                  <th className="py-3 px-4">Amount</th>
-                  <th className="py-3 px-4">Paid / Balance</th>
-                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Contract</th>
+                  <th className="py-3 px-4">Issue Date</th>
+                  <th className="py-3 px-4">Due Date</th>
+                  <th className="py-3 px-4 text-right">Total</th>
+                  <th className="py-3 px-4 text-right">Paid</th>
+                  <th className="py-3 px-4 text-center">Status</th>
+                  <th className="py-3 px-4 text-center">PDF</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filtered.map((inv) => (
-                  <tr
-                    key={inv.id}
-                    className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer"
-                  >
-                    <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
-                      <div className="flex items-center gap-1.5">
-                        <Link href={`/invoices/${inv.id}`} className="hover:text-indigo-600 dark:hover:text-indigo-400">
-                          {inv.invoiceNumber}
-                        </Link>
-                        {inv.pdfUrl && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800" title="PDF Document Attached">
-                            PDF
-                          </span>
-                        )}
-                      </div>
+                  <tr key={inv.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
+                    <td className="py-3 px-4 font-mono font-semibold text-slate-900 dark:text-white">
+                      <Link href={`/invoices/${inv.id}`} className="hover:text-indigo-600">
+                        {inv.invoiceNumber}
+                      </Link>
                     </td>
-
-                    <td className="py-3.5 px-4">
-                      <div className="font-semibold text-slate-900 dark:text-white">{inv.client.companyName}</div>
-                      {inv.contract && (
-                        <div className="text-xs text-slate-400 truncate max-w-xs">{inv.contract.title}</div>
+                    <td className="py-3 px-4 font-medium text-slate-800 dark:text-slate-200">
+                      {inv.client ? (
+                        <Link href={`/clients/${inv.client.id}`} className="hover:text-indigo-600 hover:underline">
+                          {inv.client.companyName}
+                        </Link>
+                      ) : (
+                        "—"
                       )}
                     </td>
-
-                    <td className="py-3.5 px-4 text-slate-500">
-                      <div>Issued: {format(new Date(inv.issueDate), "dd/MM/yyyy")}</div>
-                      <div className="text-xs">Due: {format(new Date(inv.dueDate), "dd/MM/yyyy")}</div>
+                    <td className="py-3 px-4">
+                      {inv.contract ? (
+                        <Link href={`/contracts/${inv.contract.id}`} className="hover:text-indigo-600 hover:underline truncate max-w-[150px] block">
+                          {inv.contract.title}
+                        </Link>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
                     </td>
-
-                    <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">
+                    <td className="py-3 px-4">
+                      {format(new Date(inv.issueDate), "dd MMM yyyy")}
+                    </td>
+                    <td className="py-3 px-4">
+                      {format(new Date(inv.dueDate), "dd MMM yyyy")}
+                    </td>
+                    <td className="py-3 px-4 text-right font-semibold text-slate-900 dark:text-white">
                       {formatCurrency(inv.total, inv.currency)}
                     </td>
-
-                    <td className="py-3.5 px-4">
-                      <div className="text-emerald-600 dark:text-emerald-400 font-medium">
-                        Paid: {formatCurrency(inv.amountPaid || 0, inv.currency)}
-                      </div>
-                      {inv.remainingBalance > 0 && (
-                        <div className="text-xs text-amber-600 dark:text-amber-400 font-semibold">
-                          Due: {formatCurrency(inv.remainingBalance, inv.currency)}
-                        </div>
-                      )}
+                    <td className="py-3 px-4 text-right font-medium text-emerald-600 dark:text-emerald-400">
+                      {formatCurrency(inv.amountPaid ?? (inv.status === "Paid" ? inv.total : 0), inv.currency)}
                     </td>
-
-                    <td className="py-3.5 px-4">
+                    <td className="py-3 px-4 text-center">
                       {getStatusBadge(inv.computedStatus || inv.status)}
                     </td>
-
-                    <td className="py-3.5 px-4 text-right">
+                    <td className="py-3 px-4 text-center">
+                      {inv.pdfUrl ? (
+                        <a
+                          href={inv.pdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center text-indigo-600 hover:text-indigo-800 p-1 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
+                          title="View PDF"
+                        >
+                          <FileText className="h-4 w-4" />
+                        </a>
+                      ) : (
+                        <span className="text-slate-300 dark:text-slate-700">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-right">
                       <Link href={`/invoices/${inv.id}`}>
                         <Button size="sm" variant="ghost" className="gap-1 text-xs">
                           <span>View</span>
@@ -195,6 +234,16 @@ export function InvoicesClient({ initialInvoices }: { initialInvoices: any[] }) 
           </div>
         </Card>
       )}
+
+      {/* Instant Record Invoice Dialog */}
+      <InvoiceFormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        clients={clients}
+        onSuccess={(newInv) => {
+          setInvoices((prev) => [newInv, ...prev.filter((i) => i.id !== newInv.id)]);
+        }}
+      />
     </div>
   );
 }

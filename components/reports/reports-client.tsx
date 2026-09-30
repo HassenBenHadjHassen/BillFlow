@@ -16,8 +16,7 @@ import {
 } from "recharts";
 
 export function ReportsClient({ initialData }: { initialData: any }) {
-  const [data] = React.useState<any>(initialData);
-  const { balances, contracted, revenueByMonth, revenueByYear, revenueByClient } = data;
+  const { balances, contracted, revenueByMonth, revenueByYear, revenueByClient } = initialData;
 
   const handleExportCsv = () => {
     window.location.href = "/api/reports/csv";

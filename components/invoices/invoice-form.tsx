@@ -194,7 +194,11 @@ export function InvoiceForm({
           description: `Invoice ${res.invoice.invoiceNumber} recorded in system.`,
           type: "success",
         });
-        router.push(`/invoices/${res.invoice.id}`);
+        if (contractId) {
+          router.push(`/contracts/${contractId}`);
+        } else {
+          router.push("/invoices");
+        }
         router.refresh();
       } else {
         setError(res.error || "Failed to save invoice.");

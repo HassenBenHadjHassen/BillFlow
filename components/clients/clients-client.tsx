@@ -18,10 +18,14 @@ interface EnrichedClient extends ClientDTO {
 }
 
 export function ClientsClient({ initialClients }: { initialClients: EnrichedClient[] }) {
-  const [clients] = React.useState<EnrichedClient[]>(initialClients);
+  const [clients, setClients] = React.useState<EnrichedClient[]>(initialClients);
   const [search, setSearch] = React.useState("");
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [selectedClient, setSelectedClient] = React.useState<ClientDTO | null>(null);
+
+  React.useEffect(() => {
+    setClients(initialClients);
+  }, [initialClients]);
 
   const filteredClients = clients.filter((c) => {
     const q = search.toLowerCase();
