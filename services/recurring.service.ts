@@ -50,6 +50,22 @@ export class RecurringBillingService {
     });
   }
 
+  static async advanceSchedule(recurringId: string) {
+    const config = await db.recurringBilling.findUnique({
+      where: { id: recurringId },
+    });
+    if (!config) throw new Error("Recurring schedule not found");
+
+    const { nextDate } = this.calculatePeriod(config.nextInvoiceDate, config.frequency);
+    return db.recurringBilling.update({
+      where: { id: recurringId },
+      data: {
+        lastInvoiceDate: config.nextInvoiceDate,
+        nextInvoiceDate: nextDate,
+      },
+    });
+  }
+
   /**
    * Idempotently generates an invoice for a specific recurring billing configuration
    */

@@ -41,6 +41,7 @@ export function ContractFormDialog({
   const [status, setStatus] = React.useState<"Draft" | "Active" | "ExpiringSoon" | "Expired" | "Terminated">("Active");
   const [autoSetupRecurring, setAutoSetupRecurring] = React.useState(true);
   const [notes, setNotes] = React.useState("");
+  const [contractFile, setContractFile] = React.useState<File | null>(null);
 
   React.useEffect(() => {
     if (preselectedClientId) {
@@ -64,27 +65,29 @@ export function ContractFormDialog({
     setIsLoading(true);
     setError(null);
 
-    const payload = {
-      clientId,
-      title,
-      contractNumber,
-      description: description || null,
-      startDate,
-      endDate: endDate || null,
-      renewalDate: renewalDate || null,
-      amount: Number(amount),
-      currency,
-      billingFrequency,
-      paymentTerms: Number(paymentTerms),
-      status,
-      autoSetupRecurring,
-      notes: notes || null,
-    };
+    const formData = new FormData();
+    if (contractFile) {
+      formData.append("file", contractFile);
+    }
+    formData.append("clientId", clientId);
+    formData.append("title", title);
+    formData.append("contractNumber", contractNumber);
+    if (description) formData.append("description", description);
+    formData.append("startDate", startDate);
+    if (endDate) formData.append("endDate", endDate);
+    if (renewalDate) formData.append("renewalDate", renewalDate);
+    formData.append("amount", String(amount));
+    formData.append("currency", currency);
+    formData.append("billingFrequency", billingFrequency);
+    formData.append("paymentTerms", String(paymentTerms));
+    formData.append("status", status);
+    formData.append("autoSetupRecurring", String(autoSetupRecurring));
+    if (notes) formData.append("notes", notes);
 
     try {
-      const res = await createContractAction(payload);
+      const res = await createContractAction(formData);
       if (res.success) {
-        toast({ title: "Contract Created", description: `${title} is now active.`, type: "success" });
+        toast({ title: "Contract Saved", description: `${title} has been recorded.`, type: "success" });
         onOpenChange(false);
         router.refresh();
       } else {
@@ -274,6 +277,26 @@ export function ContractFormDialog({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
+          </div>
+
+          {/* Attach Signed Contract Document */}
+          <div className="sm:col-span-2 space-y-1">
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              Attach Contract Document (PDF - Optional)
+            </label>
+            <Input
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  setContractFile(e.target.files[0]);
+                }
+              }}
+              className="text-xs"
+            />
+            <p className="text-[11px] text-slate-400">
+              Upload your signed contract PDF to preserve it in your local document vault.
+            </p>
           </div>
         </div>
 

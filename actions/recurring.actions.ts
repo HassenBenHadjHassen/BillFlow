@@ -29,3 +29,16 @@ export async function generateAllDueInvoicesAction() {
     return { success: false, error: (err as Error).message };
   }
 }
+
+export async function advanceRecurringScheduleAction(recurringId: string) {
+  await requireAuth();
+  try {
+    const updated = await RecurringBillingService.advanceSchedule(recurringId);
+    revalidatePath("/recurring");
+    revalidatePath("/dashboard");
+    return { success: true, updated };
+  } catch (err: unknown) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+

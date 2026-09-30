@@ -1,7 +1,8 @@
 import db from "@/lib/db";
-import { InvoiceInput } from "@/schemas";
+import { InvoiceInput, SaveInvoiceInput } from "@/schemas";
 import { calculateInvoiceTotals, calculateInvoicePaymentStatus, roundMoney } from "@/lib/financial";
 import { PdfService } from "./pdf.service";
+import { StorageService } from "./storage.service";
 
 export class InvoiceService {
   /**
@@ -120,6 +121,183 @@ export class InvoiceService {
       remainingBalance: paymentCalc.remainingBalance,
       computedStatus: paymentCalc.status,
     };
+  }
+
+  /**
+   * Saves an existing/ready invoice and optionally uploads its PDF document.
+   */
+  static async saveInvoiceWithFile(
+    data: SaveInvoiceInput,
+    file?: { buffer: Buffer; fileName: string; mimeType: string } | null,
+    options?: { markAsPaid?: boolean; paymentDate?: string; paymentMethod?: string }
+  ) {
+    const issueDate = new Date(data.issueDate);
+    const dueDate = new Date(data.dueDate);
+    const subtotal = roundMoney(data.subtotal);
+    const taxRate = Number(data.taxRate ?? 20);
+    const taxAmount = roundMoney(data.taxAmount ?? (subtotal * (taxRate / 100)));
+    const total = roundMoney(data.total ?? (subtotal + taxAmount));
+
+    return db.$transaction(async (tx) => {
+      // 1. Check if invoice number is unique
+      const existing = await tx.invoice.findUnique({
+        where: { invoiceNumber: data.invoiceNumber },
+      });
+      if (existing) {
+        throw new Error(`An invoice with number '${data.invoiceNumber}' already exists.`);
+      }
+
+      // 2. Upload file to local storage if provided
+      let pdfUrl: string | null = null;
+      let storagePath: string | null = null;
+      let fileSize = 0;
+      let fileName = "";
+
+      if (file && file.buffer && file.buffer.length > 0) {
+        fileName = file.fileName || `Invoice_${data.invoiceNumber}.pdf`;
+        const uploaded = await StorageService.uploadFile(
+          file.buffer,
+          fileName,
+          file.mimeType || "application/pdf",
+          "invoices"
+        );
+        pdfUrl = uploaded.fileUrl;
+        storagePath = uploaded.storagePath;
+        fileSize = uploaded.fileSize;
+      }
+
+      // 3. Determine initial status
+      let initialStatus = data.status || "Sent";
+      if (options?.markAsPaid || data.status === "Paid") {
+        initialStatus = "Paid";
+      }
+
+      // 4. Create the invoice record
+      const invoice = await tx.invoice.create({
+        data: {
+          clientId: data.clientId,
+          contractId: data.contractId || null,
+          invoiceNumber: data.invoiceNumber,
+          issueDate,
+          dueDate,
+          currency: data.currency || "EUR",
+          subtotal,
+          taxRate,
+          taxAmount,
+          total,
+          status: initialStatus,
+          paymentDate: initialStatus === "Paid" ? new Date(options?.paymentDate || data.issueDate) : null,
+          notes: data.notes || null,
+          pdfUrl,
+          billingPeriodStart: data.billingPeriodStart ? new Date(data.billingPeriodStart) : null,
+          billingPeriodEnd: data.billingPeriodEnd ? new Date(data.billingPeriodEnd) : null,
+        },
+        include: {
+          client: true,
+          contract: true,
+        },
+      });
+
+      // 5. If file was uploaded, create a Document record
+      if (pdfUrl && storagePath) {
+        await tx.document.create({
+          data: {
+            name: fileName,
+            type: "Invoice",
+            fileUrl: pdfUrl,
+            storagePath,
+            fileSize,
+            mimeType: file?.mimeType || "application/pdf",
+            clientId: invoice.clientId,
+            contractId: invoice.contractId,
+            invoiceId: invoice.id,
+          },
+        });
+      }
+
+      // 6. If marked as paid, create a payment record
+      if (initialStatus === "Paid") {
+        await tx.payment.create({
+          data: {
+            invoiceId: invoice.id,
+            amount: total,
+            paymentDate: new Date(options?.paymentDate || data.issueDate),
+            paymentMethod: options?.paymentMethod || "BankTransfer",
+            notes: "Recorded on invoice upload",
+          },
+        });
+      }
+
+      // 7. If linked to a contract with recurring billing, advance the next invoice date
+      if (invoice.contractId) {
+        const recurring = await tx.recurringBilling.findUnique({
+          where: { contractId: invoice.contractId },
+        });
+        if (recurring && recurring.active) {
+          const nextDate = new Date(recurring.nextInvoiceDate);
+          if (recurring.frequency === "Monthly") {
+            nextDate.setMonth(nextDate.getMonth() + 1);
+          } else if (recurring.frequency === "Quarterly") {
+            nextDate.setMonth(nextDate.getMonth() + 3);
+          } else if (recurring.frequency === "Yearly") {
+            nextDate.setFullYear(nextDate.getFullYear() + 1);
+          }
+          await tx.recurringBilling.update({
+            where: { id: recurring.id },
+            data: {
+              lastInvoiceDate: issueDate,
+              nextInvoiceDate: nextDate,
+            },
+          });
+        }
+      }
+
+      return invoice;
+    });
+  }
+
+  /**
+   * Attaches or replaces a PDF document for an existing invoice
+   */
+  static async attachInvoicePdf(
+    invoiceId: string,
+    file: { buffer: Buffer; fileName: string; mimeType: string }
+  ) {
+    const invoice = await db.invoice.findUnique({
+      where: { id: invoiceId },
+    });
+    if (!invoice) throw new Error("Invoice not found");
+
+    const fileName = file.fileName || `Invoice_${invoice.invoiceNumber}.pdf`;
+    const uploaded = await StorageService.uploadFile(
+      file.buffer,
+      fileName,
+      file.mimeType || "application/pdf",
+      "invoices"
+    );
+
+    await db.$transaction(async (tx) => {
+      await tx.invoice.update({
+        where: { id: invoiceId },
+        data: { pdfUrl: uploaded.fileUrl },
+      });
+
+      await tx.document.create({
+        data: {
+          name: fileName,
+          type: "Invoice",
+          fileUrl: uploaded.fileUrl,
+          storagePath: uploaded.storagePath,
+          fileSize: uploaded.fileSize,
+          mimeType: uploaded.mimeType,
+          clientId: invoice.clientId,
+          contractId: invoice.contractId,
+          invoiceId: invoice.id,
+        },
+      });
+    });
+
+    return uploaded.fileUrl;
   }
 
   static async createInvoice(data: InvoiceInput, options?: { autoSend?: boolean }) {

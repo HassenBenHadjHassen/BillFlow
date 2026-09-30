@@ -2,6 +2,7 @@ import db from "@/lib/db";
 import { ContractInput, RenewContractInput } from "@/schemas";
 import { roundMoney } from "@/lib/financial";
 import { differenceInCalendarDays } from "date-fns";
+import { StorageService } from "./storage.service";
 
 export interface ContractExpirationInfo {
   isExpiringSoon: boolean;
@@ -157,11 +158,32 @@ export class ContractService {
     };
   }
 
-  static async createContract(data: ContractInput) {
+  static async createContract(
+    data: ContractInput,
+    file?: { buffer: Buffer; fileName: string; mimeType: string } | null
+  ) {
     const startDate = new Date(data.startDate);
     const endDate = data.endDate ? new Date(data.endDate) : null;
     const renewalDate = data.renewalDate ? new Date(data.renewalDate) : null;
     const signedDate = data.signedDate ? new Date(data.signedDate) : null;
+
+    let fileUrl = data.fileUrl || null;
+    let storagePath: string | null = null;
+    let fileSize = 0;
+    let fileName = "";
+
+    if (file && file.buffer && file.buffer.length > 0) {
+      fileName = file.fileName || `Contract_${data.contractNumber}.pdf`;
+      const uploaded = await StorageService.uploadFile(
+        file.buffer,
+        fileName,
+        file.mimeType || "application/pdf",
+        "contracts"
+      );
+      fileUrl = uploaded.fileUrl;
+      storagePath = uploaded.storagePath;
+      fileSize = uploaded.fileSize;
+    }
 
     return db.$transaction(async (tx) => {
       const contract = await tx.contract.create({
@@ -180,8 +202,24 @@ export class ContractService {
           status: data.status || "Active",
           signedDate,
           notes: data.notes || null,
+          fileUrl,
         },
       });
+
+      if (fileUrl && storagePath) {
+        await tx.document.create({
+          data: {
+            name: fileName,
+            type: "SignedContract",
+            fileUrl,
+            storagePath,
+            fileSize,
+            mimeType: file?.mimeType || "application/pdf",
+            clientId: contract.clientId,
+            contractId: contract.id,
+          },
+        });
+      }
 
       if (data.autoSetupRecurring && data.billingFrequency !== "One-time") {
         await tx.recurringBilling.create({
@@ -198,6 +236,44 @@ export class ContractService {
 
       return contract;
     });
+  }
+
+  static async attachContractDocument(
+    contractId: string,
+    file: { buffer: Buffer; fileName: string; mimeType: string }
+  ) {
+    const contract = await db.contract.findUnique({ where: { id: contractId } });
+    if (!contract) throw new Error("Contract not found");
+
+    const fileName = file.fileName || `Contract_${contract.contractNumber}.pdf`;
+    const uploaded = await StorageService.uploadFile(
+      file.buffer,
+      fileName,
+      file.mimeType || "application/pdf",
+      "contracts"
+    );
+
+    await db.$transaction(async (tx) => {
+      await tx.contract.update({
+        where: { id: contractId },
+        data: { fileUrl: uploaded.fileUrl },
+      });
+
+      await tx.document.create({
+        data: {
+          name: fileName,
+          type: "SignedContract",
+          fileUrl: uploaded.fileUrl,
+          storagePath: uploaded.storagePath,
+          fileSize: uploaded.fileSize,
+          mimeType: uploaded.mimeType,
+          clientId: contract.clientId,
+          contractId: contract.id,
+        },
+      });
+    });
+
+    return uploaded.fileUrl;
   }
 
   static async updateContract(id: string, data: Partial<ContractInput>) {

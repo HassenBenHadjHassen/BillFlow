@@ -3,70 +3,122 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Trash2, ArrowLeft, Receipt, Sparkles } from "lucide-react";
+import {
+  UploadCloud,
+  FileCheck,
+  FileText,
+  X,
+  ArrowLeft,
+  Receipt,
+  Building2,
+  Calendar,
+  DollarSign,
+  CheckCircle2,
+  AlertCircle,
+  HelpCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { createInvoiceAction } from "@/actions/invoice.actions";
-import { calculateInvoiceTotals, formatCurrency } from "@/lib/financial";
+import { Badge } from "@/components/ui/badge";
+import { saveInvoiceAction } from "@/actions/invoice.actions";
+import { formatCurrency, roundMoney } from "@/lib/financial";
 import { useToast } from "@/components/ui/toast";
 import { ClientDTO, ContractDTO } from "@/types";
 import { addDays, format } from "date-fns";
-
-interface InvoiceItemForm {
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  taxRate: number;
-}
 
 export function InvoiceForm({
   clients,
   contracts,
   initialClientId,
   initialContractId,
+  initialAmount,
+  initialPeriodStart,
+  initialPeriodEnd,
+  suggestedInvoiceNumber,
 }: {
   clients: ClientDTO[];
   contracts: ContractDTO[];
   initialClientId?: string;
   initialContractId?: string;
+  initialAmount?: number;
+  initialPeriodStart?: string;
+  initialPeriodEnd?: string;
+  suggestedInvoiceNumber?: string;
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Form State
+  const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const [invoiceNumber, setInvoiceNumber] = React.useState(
+    suggestedInvoiceNumber || `INV-${new Date().getFullYear()}-001`
+  );
   const [clientId, setClientId] = React.useState(initialClientId || (clients[0]?.id || ""));
   const [contractId, setContractId] = React.useState(initialContractId || "");
   const [issueDate, setIssueDate] = React.useState(format(new Date(), "yyyy-MM-dd"));
   const [dueDate, setDueDate] = React.useState(format(addDays(new Date(), 30), "yyyy-MM-dd"));
   const [currency, setCurrency] = React.useState("EUR");
-  const [notes, setNotes] = React.useState("Thank you for your business. Payment is due within 30 days.");
 
-  const [items, setItems] = React.useState<InvoiceItemForm[]>([
-    {
-      description: "Consulting & Engineering Services",
-      quantity: 1,
-      unitPrice: 1500,
-      taxRate: 20,
-    },
-  ]);
+  // Financial amounts
+  const [subtotal, setSubtotal] = React.useState<number | string>(initialAmount ?? 1000);
+  const [taxRate, setTaxRate] = React.useState<number | string>(20);
+  const [taxAmount, setTaxAmount] = React.useState<number | string>(
+    roundMoney((Number(initialAmount ?? 1000) * 20) / 100)
+  );
+  const [total, setTotal] = React.useState<number | string>(
+    roundMoney(Number(initialAmount ?? 1000) + (Number(initialAmount ?? 1000) * 20) / 100)
+  );
 
-  // When a contract is selected, optionally populate items
+  // Status & payment
+  const [status, setStatus] = React.useState<string>("Sent");
+  const [paymentDate, setPaymentDate] = React.useState(format(new Date(), "yyyy-MM-dd"));
+  const [paymentMethod, setPaymentMethod] = React.useState("BankTransfer");
+
+  // Optional billing period & notes
+  const [billingPeriodStart, setBillingPeriodStart] = React.useState(initialPeriodStart || "");
+  const [billingPeriodEnd, setBillingPeriodEnd] = React.useState(initialPeriodEnd || "");
+  const [notes, setNotes] = React.useState("");
+
+  // Filter contracts for selected client
+  const clientContracts = contracts.filter((c) => c.clientId === clientId);
+
+  // Auto-calculate tax and total when subtotal or taxRate changes
+  const handleSubtotalChange = (val: string) => {
+    setSubtotal(val);
+    const subNum = parseFloat(val) || 0;
+    const rateNum = parseFloat(String(taxRate)) || 0;
+    const calculatedTax = roundMoney((subNum * rateNum) / 100);
+    const calculatedTotal = roundMoney(subNum + calculatedTax);
+    setTaxAmount(calculatedTax);
+    setTotal(calculatedTotal);
+  };
+
+  const handleTaxRateChange = (val: string) => {
+    setTaxRate(val);
+    const subNum = parseFloat(String(subtotal)) || 0;
+    const rateNum = parseFloat(val) || 0;
+    const calculatedTax = roundMoney((subNum * rateNum) / 100);
+    const calculatedTotal = roundMoney(subNum + calculatedTax);
+    setTaxAmount(calculatedTax);
+    setTotal(calculatedTotal);
+  };
+
   const handleContractChange = (newContractId: string) => {
     setContractId(newContractId);
     if (newContractId) {
       const selected = contracts.find((c) => c.id === newContractId);
       if (selected) {
         setCurrency(selected.currency || "EUR");
-        setItems([
-          {
-            description: `${selected.title} (${selected.billingFrequency} fee)`,
-            quantity: 1,
-            unitPrice: selected.amount,
-            taxRate: 20,
-          },
-        ]);
+        if (selected.amount && !initialAmount) {
+          handleSubtotalChange(String(selected.amount));
+        }
         if (selected.paymentTerms) {
           setDueDate(format(addDays(new Date(issueDate), selected.paymentTerms), "yyyy-MM-dd"));
         }
@@ -74,63 +126,78 @@ export function InvoiceForm({
     }
   };
 
-  // Filter contracts for selected client
-  const clientContracts = contracts.filter((c) => c.clientId === clientId);
-
-  const addItem = () => {
-    setItems((prev) => [
-      ...prev,
-      { description: "", quantity: 1, unitPrice: 0, taxRate: 20 },
-    ]);
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
   };
 
-  const removeItem = (index: number) => {
-    if (items.length <= 1) return;
-    setItems((prev) => prev.filter((_, i) => i !== index));
+  const handleDragLeave = () => {
+    setIsDragging(false);
   };
 
-  const updateItem = (index: number, field: keyof InvoiceItemForm, value: any) => {
-    setItems((prev) => {
-      const copy = [...prev];
-      copy[index] = { ...copy[index], [field]: value };
-      return copy;
-    });
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFileSelected(e.dataTransfer.files[0]);
+    }
   };
 
-  // Real-time calculation
-  const totals = calculateInvoiceTotals(items);
+  const handleFileSelected = (file: File) => {
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setError("Please select a PDF document file.");
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      setError("File exceeds 25MB size limit.");
+      return;
+    }
+    setError(null);
+    setSelectedFile(file);
+  };
 
-  const handleSubmit = async (autoSend: boolean = false) => {
+  const handleSubmit = async (overrideStatus?: string) => {
     setIsLoading(true);
     setError(null);
 
-    const payload = {
-      clientId,
-      contractId: contractId || null,
-      issueDate,
-      dueDate,
-      currency,
-      notes,
-      items: items.map((it) => ({
-        description: it.description,
-        quantity: Number(it.quantity),
-        unitPrice: Number(it.unitPrice),
-        taxRate: Number(it.taxRate),
-      })),
-    };
+    const activeStatus = overrideStatus || status;
+
+    const formData = new FormData();
+    if (selectedFile) {
+      formData.append("file", selectedFile);
+    }
+    formData.append("invoiceNumber", invoiceNumber.trim());
+    formData.append("clientId", clientId);
+    if (contractId) formData.append("contractId", contractId);
+    formData.append("issueDate", issueDate);
+    formData.append("dueDate", dueDate);
+    formData.append("currency", currency);
+    formData.append("subtotal", String(subtotal));
+    formData.append("taxRate", String(taxRate));
+    formData.append("taxAmount", String(taxAmount));
+    formData.append("total", String(total));
+    formData.append("status", activeStatus);
+    if (notes) formData.append("notes", notes);
+    if (billingPeriodStart) formData.append("billingPeriodStart", billingPeriodStart);
+    if (billingPeriodEnd) formData.append("billingPeriodEnd", billingPeriodEnd);
+    if (activeStatus === "Paid") {
+      formData.append("paymentDate", paymentDate);
+      formData.append("paymentMethod", paymentMethod);
+    }
 
     try {
-      const res = await createInvoiceAction(payload, { autoSend });
+      const res = await saveInvoiceAction(formData);
       if (res.success && res.invoice) {
         toast({
-          title: autoSend ? "Invoice Issued & Sent" : "Invoice Created as Draft",
-          description: `Invoice ${res.invoice.invoiceNumber} generated with PDF.`,
+          title: "Invoice Saved Successfully",
+          description: `Invoice ${res.invoice.invoiceNumber} recorded in system.`,
           type: "success",
         });
         router.push(`/invoices/${res.invoice.id}`);
         router.refresh();
       } else {
-        setError(res.error || "Failed to create invoice");
+        setError(res.error || "Failed to save invoice.");
       }
     } catch {
       setError("An unexpected error occurred while saving invoice.");
@@ -141,8 +208,8 @@ export function InvoiceForm({
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link href="/invoices">
             <Button variant="outline" size="icon" className="h-9 w-9">
@@ -152,10 +219,10 @@ export function InvoiceForm({
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
               <Receipt className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
-              Create Invoice
+              Save &amp; Record Invoice
             </h1>
-            <p className="text-xs text-slate-500">
-              Generate a professional sequential invoice with automated PDF archiving
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+              Attach your ready invoice PDF and record its financial metadata in the ledger.
             </p>
           </div>
         </div>
@@ -164,200 +231,421 @@ export function InvoiceForm({
           <Button
             type="button"
             variant="outline"
-            onClick={() => handleSubmit(false)}
+            onClick={() => handleSubmit("Draft")}
             isLoading={isLoading}
           >
             Save as Draft
           </Button>
           <Button
             type="button"
-            onClick={() => handleSubmit(true)}
+            onClick={() => handleSubmit(status)}
             isLoading={isLoading}
-            className="bg-indigo-600 hover:bg-indigo-700 shadow-sm"
+            className="bg-indigo-600 hover:bg-indigo-700 shadow-sm text-white"
           >
-            Save &amp; Mark as Sent
+            Save Invoice
           </Button>
         </div>
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
-          {error}
+        <div className="p-3.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
-      {/* Invoice Form Card */}
-      <Card>
-        <CardContent className="p-6 space-y-6">
-          {/* Metadata Row: Client, Contract, Dates */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Client *</label>
-              <select
-                required
-                value={clientId}
+      {/* Main Grid: Left Upload Zone & Right Financial Metadata */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Column: PDF File Upload (5 cols) */}
+        <div className="lg:col-span-5 space-y-4">
+          <Card className="border-dashed border-2">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <UploadCloud className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                Invoice PDF Document
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Attach your finalized invoice PDF file (optional or attach later)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
                 onChange={(e) => {
-                  setClientId(e.target.value);
-                  setContractId("");
+                  if (e.target.files && e.target.files[0]) {
+                    handleFileSelected(e.target.files[0]);
+                  }
                 }}
-                className="w-full h-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500"
-              >
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.companyName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Contract Reference</label>
-              <select
-                value={contractId}
-                onChange={(e) => handleContractChange(e.target.value)}
-                className="w-full h-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500"
-              >
-                <option value="">None (Ad-hoc Invoice)</option>
-                {clientContracts.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.contractNumber} - {c.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Issue Date *</label>
-              <Input
-                type="date"
-                required
-                value={issueDate}
-                onChange={(e) => setIssueDate(e.target.value)}
               />
-            </div>
 
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Due Date *</label>
-              <Input
-                type="date"
-                required
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {/* Line Items Table */}
-          <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                Line Items
-              </h3>
-              <Button type="button" size="sm" variant="outline" onClick={addItem} className="gap-1 text-xs">
-                <Plus className="h-3.5 w-3.5" /> Add Row
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              <div className="hidden sm:grid grid-cols-12 gap-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-2">
-                <span className="col-span-5">Description</span>
-                <span className="col-span-2">Quantity</span>
-                <span className="col-span-2">Unit Price</span>
-                <span className="col-span-1">Tax (%)</span>
-                <span className="col-span-1 text-right">Total</span>
-                <span className="col-span-1 text-center">Del</span>
-              </div>
-
-              {items.map((item, index) => {
-                const lineTotal = item.quantity * item.unitPrice;
-
-                return (
-                  <div key={index} className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-3 p-3 sm:p-2 bg-slate-50 dark:bg-slate-800/40 rounded-lg items-center">
-                    <div className="col-span-1 sm:col-span-5">
-                      <Input
-                        required
-                        placeholder="Description of service or product"
-                        value={item.description}
-                        onChange={(e) => updateItem(index, "description", e.target.value)}
-                      />
-                    </div>
-                    <div className="col-span-1 sm:col-span-2">
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        required
-                        value={item.quantity}
-                        onChange={(e) => updateItem(index, "quantity", Number(e.target.value))}
-                      />
-                    </div>
-                    <div className="col-span-1 sm:col-span-2">
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        required
-                        value={item.unitPrice}
-                        onChange={(e) => updateItem(index, "unitPrice", Number(e.target.value))}
-                      />
-                    </div>
-                    <div className="col-span-1 sm:col-span-1">
-                      <Input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        value={item.taxRate}
-                        onChange={(e) => updateItem(index, "taxRate", Number(e.target.value))}
-                      />
-                    </div>
-                    <div className="col-span-1 sm:col-span-1 text-right text-xs font-bold text-slate-900 dark:text-white">
-                      {formatCurrency(lineTotal, currency)}
-                    </div>
-                    <div className="col-span-1 sm:col-span-1 text-center">
-                      <button
-                        type="button"
-                        onClick={() => removeItem(index)}
-                        disabled={items.length <= 1}
-                        className="p-1 rounded text-slate-400 hover:text-rose-600 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
+              {!selectedFile ? (
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`p-8 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
+                    isDragging
+                      ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30"
+                      : "border-slate-200 dark:border-slate-800 hover:border-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-900/50"
+                  }`}
+                >
+                  <div className="h-12 w-12 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-3">
+                    <UploadCloud className="h-6 w-6" />
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white mb-1">
+                    Click to browse or drop PDF here
+                  </p>
+                  <p className="text-xs text-slate-500">PDF documents up to 25MB</p>
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                        <FileText className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                          {selectedFile.name}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {(selectedFile.size / 1024).toFixed(1)} KB
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setSelectedFile(null)}
+                      className="h-8 w-8 text-slate-400 hover:text-rose-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                    <FileCheck className="h-4 w-4" />
+                    <span>File attached — will be saved to secure in-project vault</span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-          {/* Real-Time Totals Box & Notes */}
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Invoice Notes / Payment Instructions</label>
-              <textarea
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500"
-              />
-            </div>
+          {/* Quick Summary Card */}
+          <Card className="bg-slate-50/50 dark:bg-slate-900/50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+                Financial Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                <span>Subtotal:</span>
+                <span className="font-medium text-slate-900 dark:text-white">
+                  {formatCurrency(Number(subtotal) || 0, currency)}
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                <span>Tax ({taxRate}%):</span>
+                <span className="font-medium text-slate-900 dark:text-white">
+                  {formatCurrency(Number(taxAmount) || 0, currency)}
+                </span>
+              </div>
+              <div className="border-t border-slate-200 dark:border-slate-800 pt-2 flex justify-between font-bold text-base text-slate-900 dark:text-white">
+                <span>Total Amount:</span>
+                <span className="text-indigo-600 dark:text-indigo-400">
+                  {formatCurrency(Number(total) || 0, currency)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-            <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-xl space-y-2 text-xs">
-              <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                <span>Subtotal (HT):</span>
-                <span className="font-semibold text-slate-900 dark:text-white">{formatCurrency(totals.subtotal, currency)}</span>
+        {/* Right Column: Invoice Details & Financials (7 cols) */}
+        <div className="lg:col-span-7 space-y-6">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Invoice Details</CardTitle>
+              <CardDescription className="text-xs">
+                Essential metadata to track this invoice in reports, client profiles, and tax records.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Row 1: Invoice Number & Client */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Invoice Number *
+                  </label>
+                  <Input
+                    required
+                    value={invoiceNumber}
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                    placeholder="e.g. INV-2026-001"
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Editable to match your existing document number.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Client *
+                  </label>
+                  <select
+                    required
+                    value={clientId}
+                    onChange={(e) => {
+                      setClientId(e.target.value);
+                      setContractId("");
+                    }}
+                    className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-indigo-500 transition-colors shadow-xs"
+                  >
+                    {clients.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.companyName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                <span>VAT / Tax Total:</span>
-                <span className="font-semibold text-slate-900 dark:text-white">{formatCurrency(totals.taxAmount, currency)}</span>
+
+              {/* Row 2: Linked Contract & Currency */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Linked Contract (Optional)
+                  </label>
+                  <select
+                    value={contractId}
+                    onChange={(e) => handleContractChange(e.target.value)}
+                    className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-indigo-500 transition-colors shadow-xs"
+                  >
+                    <option value="">No linked contract</option>
+                    {clientContracts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title} ({formatCurrency(c.amount, c.currency)} / {c.billingFrequency})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Currency
+                  </label>
+                  <select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value)}
+                    className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-indigo-500 transition-colors shadow-xs"
+                  >
+                    <option value="EUR">EUR (€)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="GBP">GBP (£)</option>
+                    <option value="CHF">CHF (CHF)</option>
+                    <option value="CAD">CAD (CA$)</option>
+                  </select>
+                </div>
               </div>
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-base font-bold text-slate-900 dark:text-white">
-                <span>Total Amount (TTC):</span>
-                <span className="text-indigo-600 dark:text-indigo-400 text-lg">{formatCurrency(totals.total, currency)}</span>
+
+              {/* Row 3: Dates */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Issue Date *
+                  </label>
+                  <Input
+                    type="date"
+                    required
+                    value={issueDate}
+                    onChange={(e) => setIssueDate(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Due Date *
+                  </label>
+                  <Input
+                    type="date"
+                    required
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
               </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+
+              {/* Financial Inputs: Subtotal, Tax Rate, Tax Amount, Total */}
+              <div className="p-4 rounded-xl bg-slate-50/70 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 space-y-4">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                  Financial Amounts
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                      Subtotal (excl. VAT) *
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={subtotal}
+                      onChange={(e) => handleSubtotalChange(e.target.value)}
+                      placeholder="1000.00"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                      Tax Rate (%)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      value={taxRate}
+                      onChange={(e) => handleTaxRateChange(e.target.value)}
+                      placeholder="20"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                      Tax Amount
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={taxAmount}
+                      onChange={(e) => {
+                        setTaxAmount(e.target.value);
+                        const sub = parseFloat(String(subtotal)) || 0;
+                        const tax = parseFloat(e.target.value) || 0;
+                        setTotal(roundMoney(sub + tax));
+                      }}
+                      placeholder="200.00"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                    Total Amount (incl. VAT) *
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={total}
+                    onChange={(e) => setTotal(e.target.value)}
+                    placeholder="1200.00"
+                    className="text-base font-bold text-indigo-600 dark:text-indigo-400"
+                  />
+                </div>
+              </div>
+
+              {/* Status & Payment Selection */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Current Status
+                  </label>
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-indigo-500 transition-colors shadow-xs"
+                  >
+                    <option value="Sent">Sent (Awaiting Payment)</option>
+                    <option value="Paid">Paid (Already Received)</option>
+                    <option value="Draft">Draft (Unsent)</option>
+                    <option value="PartiallyPaid">Partially Paid</option>
+                    <option value="Overdue">Overdue</option>
+                  </select>
+                </div>
+
+                {status === "Paid" && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Payment Method
+                    </label>
+                    <select
+                      value={paymentMethod}
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                      className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-indigo-500 transition-colors shadow-xs"
+                    >
+                      <option value="BankTransfer">Bank Wire / Transfer</option>
+                      <option value="Card">Credit / Debit Card</option>
+                      <option value="PayPal">PayPal</option>
+                      <option value="Cash">Cash</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Optional Billing Period (for Retainers) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Service Period Start (Optional)
+                  </label>
+                  <Input
+                    type="date"
+                    value={billingPeriodStart}
+                    onChange={(e) => setBillingPeriodStart(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Service Period End (Optional)
+                  </label>
+                  <Input
+                    type="date"
+                    value={billingPeriodEnd}
+                    onChange={(e) => setBillingPeriodEnd(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Notes &amp; Description
+                </label>
+                <textarea
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional internal remarks or invoice service description..."
+                  className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-indigo-500 transition-colors placeholder:text-slate-400 shadow-xs"
+                />
+              </div>
+
+              {/* Bottom Action Button */}
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  onClick={() => handleSubmit(status)}
+                  isLoading={isLoading}
+                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium shadow-sm"
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Save &amp; Record Invoice in Ledger
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

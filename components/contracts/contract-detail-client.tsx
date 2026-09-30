@@ -22,15 +22,43 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { RenewContractDialog } from "@/components/contracts/renew-contract-dialog";
-import { archiveContractAction } from "@/actions/contract.actions";
+import { archiveContractAction, attachContractDocumentAction } from "@/actions/contract.actions";
 import { formatCurrency } from "@/lib/financial";
 import { useToast } from "@/components/ui/toast";
 import { format } from "date-fns";
+import { ExternalLink, UploadCloud, Download } from "lucide-react";
 
 export function ContractDetailClient({ contract }: { contract: any }) {
   const router = useRouter();
   const { toast } = useToast();
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [renewDialogOpen, setRenewDialogOpen] = React.useState(false);
+  const [isUploading, setIsUploading] = React.useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0]) return;
+    const file = e.target.files[0];
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      toast({ title: "Invalid File", description: "Please upload a PDF document file.", type: "error" });
+      return;
+    }
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await attachContractDocumentAction(contract.id, formData);
+      if (res.success) {
+        toast({ title: "Document Attached", description: "Contract document uploaded to secure vault.", type: "success" });
+        router.refresh();
+      } else {
+        toast({ title: "Upload Failed", description: res.error, type: "error" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to upload contract document.", type: "error" });
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleArchive = async () => {
     if (!confirm(`Are you sure you want to archive contract "${contract.title}"? Historical records will remain intact.`)) {
@@ -47,6 +75,15 @@ export function ContractDetailClient({ contract }: { contract: any }) {
 
   return (
     <div className="space-y-6">
+      {/* Hidden file input for contract document */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
+
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -69,12 +106,42 @@ export function ContractDetailClient({ contract }: { contract: any }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => setRenewDialogOpen(true)} className="gap-2 bg-indigo-600 hover:bg-indigo-700 shadow-sm">
+          {contract.fileUrl ? (
+            <>
+              <a href={contract.fileUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <ExternalLink className="h-3.5 w-3.5" /> View Signed PDF
+                </Button>
+              </a>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                isLoading={isUploading}
+                className="gap-1.5"
+              >
+                <UploadCloud className="h-3.5 w-3.5" /> Replace PDF
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              isLoading={isUploading}
+              className="gap-1.5"
+            >
+              <UploadCloud className="h-3.5 w-3.5" /> Attach Contract PDF
+            </Button>
+          )}
+
+          <Button onClick={() => setRenewDialogOpen(true)} className="gap-2 bg-indigo-600 hover:bg-indigo-700 shadow-sm text-white">
             <RotateCw className="h-4 w-4" /> Renew Contract
           </Button>
+
           <Link href={`/invoices/new?clientId=${contract.clientId}&contractId=${contract.id}`}>
             <Button variant="outline" size="sm" className="gap-1.5">
-              <Plus className="h-4 w-4" /> Issue Invoice
+              <Plus className="h-4 w-4" /> Record Invoice
             </Button>
           </Link>
           <Button variant="ghost" size="icon" onClick={handleArchive} className="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40">
@@ -233,6 +300,44 @@ export function ContractDetailClient({ contract }: { contract: any }) {
                 ))}
               </div>
             )}
+
+            {/* Attached Contract Document */}
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+              <span className="text-slate-400 block font-medium uppercase text-[10px]">Contract Document</span>
+              {contract.fileUrl ? (
+                <div className="p-3 rounded-lg bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 space-y-2">
+                  <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300 font-semibold text-xs">
+                    <FileCheck className="h-4 w-4" />
+                    <span>Signed Document Stored</span>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <a href={contract.fileUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
+                      <Button size="sm" variant="outline" className="w-full text-xs h-7 gap-1">
+                        <ExternalLink className="h-3 w-3" /> View PDF
+                      </Button>
+                    </a>
+                    <a href={contract.fileUrl} download={`Contract_${contract.contractNumber}.pdf`}>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-500">
+                        <Download className="h-3.5 w-3.5" />
+                      </Button>
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-lg border border-dashed border-slate-200 dark:border-slate-800 text-center space-y-1.5">
+                  <p className="text-[11px] text-slate-400">No signed PDF attached yet</p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    isLoading={isUploading}
+                    className="text-xs h-7 gap-1"
+                  >
+                    <UploadCloud className="h-3 w-3" /> Attach PDF
+                  </Button>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 

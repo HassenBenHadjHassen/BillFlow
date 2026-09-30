@@ -61,9 +61,9 @@ export function InvoicesClient({ initialInvoices }: { initialInvoices: any[] }) 
         </div>
 
         <Link href="/invoices/new">
-          <Button className="gap-2 shadow-sm">
+          <Button className="gap-2 shadow-sm bg-indigo-600 hover:bg-indigo-700 text-white">
             <Plus className="h-4 w-4" />
-            <span>Create Invoice</span>
+            <span>Record Invoice</span>
           </Button>
         </Link>
       </div>
@@ -137,9 +137,16 @@ export function InvoicesClient({ initialInvoices }: { initialInvoices: any[] }) 
                     className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer"
                   >
                     <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
-                      <Link href={`/invoices/${inv.id}`} className="hover:text-indigo-600 dark:hover:text-indigo-400">
-                        {inv.invoiceNumber}
-                      </Link>
+                      <div className="flex items-center gap-1.5">
+                        <Link href={`/invoices/${inv.id}`} className="hover:text-indigo-600 dark:hover:text-indigo-400">
+                          {inv.invoiceNumber}
+                        </Link>
+                        {inv.pdfUrl && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800" title="PDF Document Attached">
+                            PDF
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     <td className="py-3.5 px-4">

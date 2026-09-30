@@ -254,4 +254,94 @@ describe("End-to-End Business Workflows", () => {
     expect(fullyPaidInvoice?.amountPaid).toBe(1200);
     expect(fullyPaidInvoice?.remainingBalance).toBe(0);
   });
+
+  it("WORKFLOW 5: Save Ready Invoice with Attached PDF & Document Vault Linking", async () => {
+    // 1. Create client
+    const client = await ClientService.createClient({
+      companyName: "Saved Invoices Client SARL",
+      email: "saved@client.com",
+    });
+
+    // 2. Create contract with attached PDF buffer
+    const mockContractPdf = Buffer.from("%PDF-1.4 Mock Contract Content");
+    const contract = await ContractService.createContract(
+      {
+        clientId: client.id,
+        title: "Signed Engineering Retainer",
+        contractNumber: `CTR-SIGNED-${Date.now()}`,
+        startDate: new Date().toISOString().split("T")[0],
+        amount: 3500,
+        billingFrequency: "Monthly",
+        status: "Active",
+        autoSetupRecurring: true,
+      },
+      {
+        buffer: mockContractPdf,
+        fileName: "Signed_Agreement.pdf",
+        mimeType: "application/pdf",
+      }
+    );
+    expect(contract.fileUrl).toBeDefined();
+    expect(contract.fileUrl).toContain("/api/documents/stream");
+
+    // Verify contract document in vault
+    const contractDoc = await db.document.findFirst({
+      where: { contractId: contract.id, type: "SignedContract" },
+    });
+    expect(contractDoc).not.toBeNull();
+    expect(contractDoc?.name).toBe("Signed_Agreement.pdf");
+
+    // 3. Save a ready invoice with custom number and attached invoice PDF
+    const mockInvoicePdf = Buffer.from("%PDF-1.4 Mock Ready Invoice PDF Content");
+    const savedInvoice = await InvoiceService.saveInvoiceWithFile(
+      {
+        invoiceNumber: `INV-EXISTING-${Date.now()}`,
+        clientId: client.id,
+        contractId: contract.id,
+        issueDate: new Date().toISOString().split("T")[0],
+        dueDate: addDays(new Date(), 30).toISOString().split("T")[0],
+        currency: "EUR",
+        subtotal: 3500,
+        taxRate: 20,
+        taxAmount: 700,
+        total: 4200,
+        status: "Sent",
+        notes: "Monthly retainer invoice already prepared externally.",
+      },
+      {
+        buffer: mockInvoicePdf,
+        fileName: "External_Invoice_2026_09.pdf",
+        mimeType: "application/pdf",
+      }
+    );
+
+    expect(savedInvoice.id).toBeDefined();
+    expect(savedInvoice.total).toBe(4200);
+    expect(savedInvoice.pdfUrl).toBeDefined();
+    expect(savedInvoice.pdfUrl).toContain("/api/documents/stream");
+
+    // Verify invoice document in vault
+    const invoiceDoc = await db.document.findFirst({
+      where: { invoiceId: savedInvoice.id, type: "Invoice" },
+    });
+    expect(invoiceDoc).not.toBeNull();
+    expect(invoiceDoc?.name).toBe("External_Invoice_2026_09.pdf");
+
+    // 4. Verify getInvoiceById correctly computes remaining balance
+    const fetchedInvoice = await InvoiceService.getInvoiceById(savedInvoice.id);
+    expect(fetchedInvoice?.remainingBalance).toBe(4200);
+    expect(fetchedInvoice?.computedStatus).toBe("Sent");
+    expect(fetchedInvoice?.pdfUrl).toBe(savedInvoice.pdfUrl);
+
+    // 5. Test advancing recurring schedule
+    const recurring = await db.recurringBilling.findUnique({
+      where: { contractId: contract.id },
+    });
+    expect(recurring).not.toBeNull();
+    if (recurring) {
+      const advanced = await RecurringBillingService.advanceSchedule(recurring.id);
+      expect(advanced.nextInvoiceDate).not.toEqual(recurring.nextInvoiceDate);
+    }
+  });
 });
+

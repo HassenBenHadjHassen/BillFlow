@@ -3,11 +3,21 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarSync, Play, Sparkles, AlertCircle, CheckCircle2, Clock, Calendar, ArrowRight } from "lucide-react";
+import {
+  CalendarSync,
+  UploadCloud,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  Calendar,
+  Building2,
+  ArrowRight,
+  TrendingUp,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { generateRecurringInvoiceAction, generateAllDueInvoicesAction } from "@/actions/recurring.actions";
+import { advanceRecurringScheduleAction } from "@/actions/recurring.actions";
 import { formatCurrency } from "@/lib/financial";
 import { useToast } from "@/components/ui/toast";
 import { differenceInCalendarDays, format } from "date-fns";
@@ -15,231 +25,228 @@ import { differenceInCalendarDays, format } from "date-fns";
 export function RecurringClient({ configs }: { configs: any[] }) {
   const router = useRouter();
   const { toast } = useToast();
-  const [isGeneratingAll, setIsGeneratingAll] = React.useState(false);
-  const [generatingId, setGeneratingId] = React.useState<string | null>(null);
-  const [lastReport, setLastReport] = React.useState<any | null>(null);
-
-  const handleGenerateSingle = async (id: string, force: boolean = false) => {
-    setGeneratingId(id);
-    try {
-      const res = await generateRecurringInvoiceAction(id, force);
-      if (res.success && res.result) {
-        if (res.result.generated) {
-          toast({
-            title: "Recurring Invoice Generated",
-            description: `Invoice ${res.result.invoiceNumber} created and schedule updated.`,
-            type: "success",
-          });
-        } else {
-          toast({
-            title: "Idempotent Check Passed",
-            description: res.result.reason || "Invoice already exists for this billing period.",
-            type: "info",
-          });
-        }
-        router.refresh();
-      } else {
-        toast({ title: "Error", description: res.error, type: "error" });
-      }
-    } finally {
-      setGeneratingId(null);
-    }
-  };
-
-  const handleGenerateAll = async () => {
-    setIsGeneratingAll(true);
-    setLastReport(null);
-    try {
-      const res = await generateAllDueInvoicesAction();
-      if (res.success && res.report) {
-        setLastReport(res.report);
-        if (res.report.generated > 0) {
-          toast({
-            title: "Due Invoices Processed",
-            description: `Generated ${res.report.generated} invoice(s). Skipped ${res.report.skipped} already generated or not due.`,
-            type: "success",
-          });
-        } else {
-          toast({
-            title: "All Invoices Up-to-Date",
-            description: `0 invoices due. All ${res.report.skipped} period checks were idempotent.`,
-            type: "info",
-          });
-        }
-        router.refresh();
-      } else {
-        toast({ title: "Error", description: res.error, type: "error" });
-      }
-    } finally {
-      setIsGeneratingAll(false);
-    }
-  };
+  const [advancingId, setAdvancingId] = React.useState<string | null>(null);
 
   const today = new Date();
 
+  // Metrics
+  const activeConfigs = configs.filter((c) => c.active);
+  const totalMRR = activeConfigs.reduce((sum, c) => {
+    let monthly = c.amount;
+    if (c.frequency === "Quarterly") monthly = c.amount / 3;
+    if (c.frequency === "Yearly") monthly = c.amount / 12;
+    return sum + monthly;
+  }, 0);
+
+  const dueCount = activeConfigs.filter((c) => {
+    const next = new Date(c.nextInvoiceDate);
+    return differenceInCalendarDays(next, today) <= 0;
+  }).length;
+
+  const handleAdvance = async (id: string, clientName: string) => {
+    if (!confirm(`Mark this billing cycle as invoiced for ${clientName}? This will advance the schedule to the next period.`)) {
+      return;
+    }
+    setAdvancingId(id);
+    try {
+      const res = await advanceRecurringScheduleAction(id);
+      if (res.success) {
+        toast({
+          title: "Schedule Advanced",
+          description: "Billing period marked as invoiced. Next billing date updated.",
+          type: "success",
+        });
+        router.refresh();
+      } else {
+        toast({ title: "Error", description: res.error, type: "error" });
+      }
+    } finally {
+      setAdvancingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Top Header & Batch Action */}
+      {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             <CalendarSync className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
-            Recurring Billing Schedules ({configs.length})
+            Recurring Billing Schedules &amp; Alerts ({configs.length})
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Idempotent automated monthly retainer generation and subscription schedules.
+            Track retainer contracts and receive timely alerts to log and attach monthly invoices.
           </p>
         </div>
 
-        <Button
-          onClick={handleGenerateAll}
-          isLoading={isGeneratingAll}
-          className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
-        >
-          <Play className="h-4 w-4" />
-          <span>Generate All Due Invoices</span>
-        </Button>
+        <Link href="/contracts">
+          <Button variant="outline" className="gap-2 shadow-xs">
+            <span>Manage Contracts</span>
+          </Button>
+        </Link>
       </div>
 
-      {/* Idempotency Protection Info Banner */}
-      <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/60 dark:bg-indigo-950/40 text-xs text-indigo-900 dark:text-indigo-200 flex items-start gap-3">
-        <Sparkles className="h-5 w-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
-        <div className="space-y-1">
-          <p className="font-semibold text-sm">Guaranteed Idempotent Generation</p>
-          <p className="text-indigo-700 dark:text-indigo-300">
-            Billflow checks each contract against its exact billing period window (<code>billingPeriodStart</code> &amp; <code>billingPeriodEnd</code>). You can safely click &ldquo;Generate All Due Invoices&rdquo; at any time; duplicate invoices will never be generated for the same contract cycle.
-          </p>
-        </div>
-      </div>
-
-      {/* Last Run Report Banner (if just executed) */}
-      {lastReport && (
-        <Card className="p-4 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/30 text-xs space-y-2">
-          <div className="flex items-center gap-2 font-bold text-emerald-800 dark:text-emerald-300 text-sm">
-            <CheckCircle2 className="h-4 w-4" />
-            <span>Batch Run Summary</span>
-          </div>
-          <div className="text-slate-700 dark:text-slate-300">
-            Processed <strong>{lastReport.processed}</strong> schedules: <strong>{lastReport.generated}</strong> new invoice(s) generated, <strong>{lastReport.skipped}</strong> skipped (idempotent / up to date).
-          </div>
-          {lastReport.results?.length > 0 && (
-            <div className="divide-y divide-emerald-200/60 dark:divide-emerald-800/40 pt-1">
-              {lastReport.results.map((r: any, idx: number) => (
-                <div key={idx} className="py-1 flex items-center justify-between">
-                  <span>{r.contractTitle}</span>
-                  <Badge variant={r.result.generated ? "success" : "secondary"} className="text-[10px]">
-                    {r.result.generated ? `Generated ${r.result.invoiceNumber}` : (r.result.reason || "Skipped")}
-                  </Badge>
-                </div>
-              ))}
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              Monthly Recurring Revenue
+            </span>
+          </CardHeader>
+          <CardContent className="p-4 pt-1">
+            <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+              <TrendingUp className="h-5 w-5" />
+              {formatCurrency(totalMRR, "EUR")}
             </div>
-          )}
+            <p className="text-[11px] text-slate-400 mt-1">Normalized monthly contract volume</p>
+          </CardContent>
         </Card>
-      )}
 
-      {/* Recurring Schedules Table */}
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              Active Schedules
+            </span>
+          </CardHeader>
+          <CardContent className="p-4 pt-1">
+            <div className="text-2xl font-bold text-slate-900 dark:text-white">
+              {activeConfigs.length}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">Ongoing retainer contracts</p>
+          </CardContent>
+        </Card>
+
+        <Card className={dueCount > 0 ? "border-amber-200 dark:border-amber-900/50 bg-amber-50/20" : ""}>
+          <CardHeader className="p-4 pb-1">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              Invoices Due to Log
+            </span>
+          </CardHeader>
+          <CardContent className="p-4 pt-1">
+            <div className={`text-2xl font-bold ${dueCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+              {dueCount}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">
+              {dueCount > 0 ? "Schedules ready for this month's invoice" : "All schedules up to date"}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Schedules List */}
       {configs.length === 0 ? (
         <Card className="p-12 text-center">
           <CalendarSync className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-slate-900 dark:text-white">No recurring billing configurations</h3>
+          <h3 className="text-base font-semibold text-slate-900 dark:text-white">No Recurring Schedules</h3>
           <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            Recurring schedules are automatically created when you check &ldquo;Automatically configure recurring billing schedule&rdquo; upon creating a contract.
+            Recurring schedules are automatically created when you create a contract with Monthly, Quarterly, or Yearly frequency.
           </p>
-          <Link href="/contracts" className="inline-block mt-4">
-            <Button size="sm">Go to Contracts</Button>
-          </Link>
+          <div className="mt-4">
+            <Link href="/contracts">
+              <Button size="sm">View Contracts</Button>
+            </Link>
+          </div>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {configs.map((config) => {
-            const daysToDue = differenceInCalendarDays(new Date(config.nextInvoiceDate), today);
-            const isDue = daysToDue <= 0;
-            const isGenerating = generatingId === config.id;
+        <div className="space-y-4">
+          {configs.map((cfg) => {
+            const nextDate = new Date(cfg.nextInvoiceDate);
+            const daysRemaining = differenceInCalendarDays(nextDate, today);
+            const isDue = daysRemaining <= 0;
+            const isDueSoon = daysRemaining > 0 && daysRemaining <= 7;
 
             return (
-              <Card key={config.id} className="flex flex-col justify-between hover:border-indigo-300 transition-colors">
-                <CardContent className="p-5 space-y-4">
-                  {/* Client & Contract */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                        {config.contract.client.companyName}
-                      </span>
-                      <h3 className="text-base font-bold text-slate-900 dark:text-white mt-0.5">
-                        {config.contract.title}
-                      </h3>
-                      <span className="text-xs text-indigo-600 dark:text-indigo-400 font-mono">
-                        {config.contract.contractNumber}
+              <Card
+                key={cfg.id}
+                className={`transition-all ${
+                  isDue
+                    ? "border-amber-300 dark:border-amber-800/60 bg-amber-50/10 dark:bg-amber-950/10 shadow-xs"
+                    : "border-slate-200 dark:border-slate-800"
+                }`}
+              >
+                <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Link
+                        href={`/clients/${cfg.contract.clientId}`}
+                        className="font-bold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1.5 text-sm"
+                      >
+                        <Building2 className="h-4 w-4 text-slate-400" />
+                        {cfg.contract.client.companyName}
+                      </Link>
+
+                      <Badge variant="outline" className="text-[11px] font-normal">
+                        {cfg.frequency}
+                      </Badge>
+
+                      {isDue ? (
+                        <Badge variant="warning" className="gap-1 text-xs">
+                          <AlertCircle className="h-3 w-3" /> Invoice Due Now
+                        </Badge>
+                      ) : isDueSoon ? (
+                        <Badge variant="warning" className="text-xs">
+                          Due in {daysRemaining} day{daysRemaining === 1 ? "" : "s"}
+                        </Badge>
+                      ) : (
+                        <Badge variant="success" className="text-xs">
+                          Active ({daysRemaining} days left)
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3 text-xs text-slate-500">
+                      <Link
+                        href={`/contracts/${cfg.contractId}`}
+                        className="hover:underline text-indigo-600 dark:text-indigo-400 font-medium"
+                      >
+                        {cfg.contract.title}
+                      </Link>
+                      <span>•</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatCurrency(cfg.amount, cfg.currency)} / {cfg.frequency.toLowerCase()}
                       </span>
                     </div>
-                    <Badge variant={config.active ? "success" : "secondary"} className="text-[10px]">
-                      {config.active ? "Active Schedule" : "Inactive"}
-                    </Badge>
+
+                    <div className="flex items-center gap-4 text-xs text-slate-400 pt-1">
+                      <div className="flex items-center gap-1">
+                        <Calendar className="h-3.5 w-3.5 text-indigo-500" />
+                        <span>Next billing date: <strong>{format(nextDate, "dd MMMM yyyy")}</strong></span>
+                      </div>
+                      {cfg.lastInvoiceDate && (
+                        <div>
+                          Last invoiced: {format(new Date(cfg.lastInvoiceDate), "dd MMM yyyy")}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Rate & Frequency */}
-                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="text-slate-400 text-[10px] uppercase font-semibold block">Billing Fee</span>
-                      <span className="text-base font-bold text-slate-900 dark:text-white">
-                        {formatCurrency(config.amount, config.currency)}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-slate-400 text-[10px] uppercase font-semibold block">Cadence</span>
-                      <span className="font-semibold text-slate-700 dark:text-slate-300">{config.frequency}</span>
-                    </div>
-                  </div>
+                  {/* Actions for this recurring schedule */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Link
+                      href={`/invoices/new?clientId=${cfg.contract.clientId}&contractId=${cfg.contract.id}&amount=${cfg.amount}`}
+                    >
+                      <Button
+                        size="sm"
+                        className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+                      >
+                        <UploadCloud className="h-3.5 w-3.5" />
+                        <span>Record &amp; Attach Invoice</span>
+                      </Button>
+                    </Link>
 
-                  {/* Next Invoice & Status */}
-                  <div className="space-y-1.5 text-xs text-slate-500">
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5 text-slate-400" /> Next Invoice Date:
-                      </span>
-                      <span className="font-bold text-slate-900 dark:text-white">
-                        {format(new Date(config.nextInvoiceDate), "dd MMM yyyy")}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Calendar className="h-3.5 w-3.5 text-slate-400" /> Last Generated:
-                      </span>
-                      <span>
-                        {config.lastInvoiceDate ? format(new Date(config.lastInvoiceDate), "dd MMM yyyy") : "None yet"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Due Status Pill */}
-                  <div className={`p-2 rounded-lg text-xs font-semibold flex items-center justify-between ${
-                    isDue
-                      ? "bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
-                      : "bg-slate-100 text-slate-700 dark:bg-slate-800/80 dark:text-slate-300"
-                  }`}>
-                    <span>{isDue ? "Invoice is due now" : `Due in ${daysToDue} day${daysToDue === 1 ? "" : "s"}`}</span>
-                    {isDue && <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />}
-                  </div>
-                </CardContent>
-
-                <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 rounded-b-xl flex items-center justify-between gap-2">
-                  <Link href={`/contracts/${config.contractId}`} className="text-xs text-indigo-600 hover:underline font-semibold flex items-center gap-1">
-                    Contract <ArrowRight className="h-3 w-3" />
-                  </Link>
-
-                  <div className="flex items-center gap-1.5">
                     <Button
                       size="sm"
-                      onClick={() => handleGenerateSingle(config.id, isDue ? false : true)}
-                      isLoading={isGenerating}
-                      className="text-xs h-8 gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
+                      variant="outline"
+                      onClick={() => handleAdvance(cfg.id, cfg.contract.client.companyName)}
+                      isLoading={advancingId === cfg.id}
+                      className="text-xs text-slate-600 dark:text-slate-400"
+                      title="Advance billing date without uploading an invoice right now"
                     >
-                      <Play className="h-3 w-3" />
-                      <span>{isDue ? "Generate Invoice" : "Force Generate"}</span>
+                      Mark as Invoiced
                     </Button>
                   </div>
-                </div>
+                </CardContent>
               </Card>
             );
           })}

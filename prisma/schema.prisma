@@ -110,6 +110,7 @@ model Contract {
   status             String            @default("Active") // Draft, Active, ExpiringSoon, Expired, Terminated
   signedDate         DateTime?
   notes              String?
+  fileUrl            String?
   previousContractId String?
   previousContract   Contract?         @relation("ContractRenewals", fields: [previousContractId], references: [id], onDelete: SetNull)
   renewals           Contract[]        @relation("ContractRenewals")

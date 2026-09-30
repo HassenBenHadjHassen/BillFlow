@@ -52,6 +52,7 @@ export const ContractSchema = z.object({
   status: z.enum(["Draft", "Active", "ExpiringSoon", "Expired", "Terminated"]).default("Active"),
   signedDate: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  fileUrl: z.string().optional().nullable(),
   autoSetupRecurring: z.boolean().default(false),
 });
 export type ContractInput = z.infer<typeof ContractSchema>;
@@ -67,6 +68,7 @@ export const RenewContractSchema = z.object({
   billingFrequency: z.enum(["One-time", "Monthly", "Quarterly", "Yearly"]).default("Monthly"),
   paymentTerms: z.coerce.number().int().default(30),
   notes: z.string().optional().nullable(),
+  fileUrl: z.string().optional().nullable(),
 });
 export type RenewContractInput = z.infer<typeof RenewContractSchema>;
 
@@ -77,6 +79,24 @@ export const InvoiceItemSchema = z.object({
   taxRate: z.coerce.number().min(0, "Tax rate must be at least 0").default(20),
 });
 export type InvoiceItemInput = z.infer<typeof InvoiceItemSchema>;
+
+export const SaveInvoiceSchema = z.object({
+  invoiceNumber: z.string().min(1, "Invoice number is required"),
+  clientId: z.string().min(1, "Client is required"),
+  contractId: z.string().optional().nullable(),
+  issueDate: z.string().min(1, "Issue date is required"),
+  dueDate: z.string().min(1, "Due date is required"),
+  currency: z.string().default("EUR"),
+  subtotal: z.coerce.number().min(0, "Subtotal must be at least 0"),
+  taxRate: z.coerce.number().min(0, "Tax rate must be at least 0").default(20),
+  taxAmount: z.coerce.number().min(0).default(0),
+  total: z.coerce.number().min(0, "Total amount must be at least 0"),
+  status: z.enum(["Draft", "Sent", "Paid", "PartiallyPaid", "Overdue", "Cancelled"]).default("Sent"),
+  notes: z.string().optional().nullable(),
+  billingPeriodStart: z.string().optional().nullable(),
+  billingPeriodEnd: z.string().optional().nullable(),
+});
+export type SaveInvoiceInput = z.infer<typeof SaveInvoiceSchema>;
 
 export const InvoiceSchema = z.object({
   clientId: z.string().min(1, "Client is required"),
