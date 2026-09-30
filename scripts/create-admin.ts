@@ -1,14 +1,30 @@
 import readline from "readline/promises";
 import { stdin as input, stdout as output } from "process";
 import { PrismaClient } from "@prisma/client";
+import { execSync } from "child_process";
 import bcrypt from "bcryptjs";
 
 const db = new PrismaClient();
+
+async function ensureDatabaseSchema() {
+  try {
+    await db.$queryRawUnsafe("SELECT 1 FROM User LIMIT 1");
+  } catch (err: unknown) {
+    const error = err as { code?: string; message?: string };
+    if (error?.code === "P2021" || error?.message?.includes("does not exist") || error?.message?.includes("no such table")) {
+      console.log("Database schema not yet initialized. Running 'prisma db push' automatically...");
+      execSync("npx prisma db push --skip-generate", { stdio: "inherit" });
+      console.log("Database tables initialized successfully.\n");
+    }
+  }
+}
 
 async function main() {
   console.log("==========================================");
   console.log("   Billflow - Create Owner / Admin Setup  ");
   console.log("==========================================\n");
+
+  await ensureDatabaseSchema();
 
   const rl = readline.createInterface({ input, output });
 
