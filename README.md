@@ -82,7 +82,14 @@ The project includes an optimized PM2 production configuration in [`ecosystem.co
 - Auto-restart on failure with 1GB memory limit.
 - Structured daily rotating log files in `./logs/`.
 
-### PM2 Commands
+### One-Click Production Launch (Recommended for VPS)
+
+```bash
+npm run prod
+```
+*This single command automatically creates `.env` (if missing), generates Prisma client, pushes database schema to SQLite, builds the Next.js bundle, starts/reloads PM2, and saves process persistence.*
+
+### Granular PM2 Commands
 
 ```bash
 # Build the production application bundle
