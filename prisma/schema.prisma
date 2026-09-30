@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions      Session[]
+  accounts      Account[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+model Client {
+  id          String     @id @default(cuid())
+  companyName String
+  contactName String?
+  email       String
+  phone       String?
+  address     String?
+  city        String?
+  postalCode  String?
+  country     String?    @default("France")
+  vatNumber   String?
+  siret       String?
+  notes       String?
+  isArchived  Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  contracts   Contract[]
+  invoices    Invoice[]
+  documents   Document[]
+
+  @@index([companyName])
+  @@index([email])
+  @@index([isArchived])
+}
+
+model Contract {
+  id                 String            @id @default(cuid())
+  clientId           String
+  client             Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  title              String
+  contractNumber     String            @unique
+  description        String?
+  startDate          DateTime
+  endDate            DateTime?
+  renewalDate        DateTime?
+  amount             Float
+  currency           String            @default("EUR")
+  billingFrequency   String            @default("Monthly") // One-time, Monthly, Quarterly, Yearly
+  paymentTerms       Int               @default(30) // Net days (e.g. 30 days)
+  status             String            @default("Active") // Draft, Active, ExpiringSoon, Expired, Terminated
+  signedDate         DateTime?
+  notes              String?
+  previousContractId String?
+  previousContract   Contract?         @relation("ContractRenewals", fields: [previousContractId], references: [id], onDelete: SetNull)
+  renewals           Contract[]        @relation("ContractRenewals")
+  isArchived         Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  invoices           Invoice[]
+  documents          Document[]
+  recurringBilling   RecurringBilling?
+
+  @@index([clientId])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([isArchived])
+}
+
+model RecurringBilling {
+  id              String    @id @default(cuid())
+  contractId      String    @unique
+  contract        Contract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  frequency       String    @default("Monthly") // Monthly, Quarterly, Yearly
+  amount          Float
+  currency        String    @default("EUR")
+  nextInvoiceDate DateTime
+  lastInvoiceDate DateTime?
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([active])
+  @@index([nextInvoiceDate])
+}
+
+model Invoice {
+  id                 String        @id @default(cuid())
+  clientId           String
+  client             Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  contractId         String?
+  contract           Contract?     @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  invoiceNumber      String        @unique
+  issueDate          DateTime
+  dueDate            DateTime
+  currency           String        @default("EUR")
+  subtotal           Float         @default(0)
+  taxRate            Float         @default(20) // in percent, e.g. 20%
+  taxAmount          Float         @default(0)
+  total              Float         @default(0)
+  status             String        @default("Draft") // Draft, Sent, Paid, PartiallyPaid, Overdue, Cancelled
+  paymentDate        DateTime?
+  billingPeriodStart DateTime?
+  billingPeriodEnd   DateTime?
+  notes              String?
+  pdfUrl             String?
+  isArchived         Boolean       @default(false)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  items              InvoiceItem[]
+  payments           Payment[]
+  documents          Document[]
+
+  @@index([clientId])
+  @@index([contractId])
+  @@index([status])
+  @@index([issueDate])
+  @@index([dueDate])
+  @@index([billingPeriodStart, billingPeriodEnd])
+  @@index([isArchived])
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float    @default(1)
+  unitPrice   Float    @default(0)
+  taxRate     Float    @default(20)
+  total       Float    @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id            String     @id @default(cuid())
+  invoiceId     String
+  invoice       Invoice    @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  amount        Float
+  paymentDate   DateTime   @default(now())
+  paymentMethod String     @default("BankTransfer") // BankTransfer, Cash, Card, PayPal, Other
+  reference     String?
+  notes         String?
+  createdAt     DateTime   @default(now())
+
+  documents     Document[]
+
+  @@index([invoiceId])
+  @@index([paymentDate])
+}
+
+model Document {
+  id          String    @id @default(cuid())
+  name        String
+  type        String    @default("Other") // Contract, SignedContract, Invoice, Receipt, Quote, TaxDocument, Identification, Other
+  fileUrl     String
+  storagePath String
+  fileSize    Int
+  mimeType    String
+  uploadedAt  DateTime  @default(now())
+
+  clientId    String?
+  client      Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  contractId  String?
+  contract    Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  invoiceId   String?
+  invoice     Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  paymentId   String?
+  payment     Payment?  @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  isArchived  Boolean   @default(false)
+
+  @@index([clientId])
+  @@index([contractId])
+  @@index([invoiceId])
+  @@index([paymentId])
+  @@index([type])
+  @@index([isArchived])
+}
+
+model CompanySettings {
+  id                  Int      @id @default(1)
+  companyName         String   @default("My Business")
+  logo                String?
+  address             String?
+  city                String?
+  postalCode          String?
+  country             String?  @default("France")
+  email               String?
+  phone               String?
+  website             String?
+  siret               String?
+  vatNumber           String?
+  iban                String?
+  bic                 String?
+  defaultCurrency     String   @default("EUR")
+  defaultTaxRate      Float    @default(20)
+  defaultPaymentTerms Int      @default(30)
+  invoicePrefix       String   @default("INV")
+  invoiceNotes        String?  @default("Thank you for your business. Payment is due within 30 days.")
+  updatedAt           DateTime @updatedAt
+}
