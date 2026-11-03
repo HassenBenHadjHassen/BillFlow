@@ -77,20 +77,20 @@ describe("End-to-End Business Workflows", () => {
           description: "Monthly Maintenance Retainer",
           quantity: 1,
           unitPrice: 2500,
-          taxRate: 20,
+          taxRate: 0,
         },
       ],
     }, { autoSend: true });
     invoiceId = invoice.id;
 
-    expect(invoice.total).toBe(3000); // 2500 + 500 VAT
+    expect(invoice.total).toBe(2500); // No VAT
     expect(invoice.status).toBe("Sent");
-    expect(invoice.invoiceNumber).toMatch(/^INV-/);
+    expect(invoice.invoiceNumber).toMatch(/^F[0-9]{8}-WORKFLOW$/);
 
     // 4. Record full payment
     const payment = await PaymentService.recordPayment({
       invoiceId: invoice.id,
-      amount: 3000,
+      amount: 2500,
       paymentDate: new Date().toISOString().split("T")[0],
       paymentMethod: "BankTransfer",
       reference: "WIRE-WF-001",
@@ -101,11 +101,11 @@ describe("End-to-End Business Workflows", () => {
     const updatedInvoice = await InvoiceService.getInvoiceById(invoice.id);
     expect(updatedInvoice?.computedStatus).toBe("Paid");
     expect(updatedInvoice?.remainingBalance).toBe(0);
-    expect(updatedInvoice?.amountPaid).toBe(3000);
+    expect(updatedInvoice?.amountPaid).toBe(2500);
 
     // 6. Verify Dashboard totals reflect payment
     const dashboard = await DashboardService.getDashboardData();
-    expect(dashboard.metrics.revenueThisMonth).toBeGreaterThanOrEqual(3000);
+    expect(dashboard.metrics.revenueThisMonth).toBeGreaterThanOrEqual(2500);
   });
 
   it("WORKFLOW 2: Recurring Billing Idempotency & Duplicate Prevention", async () => {
@@ -113,6 +113,7 @@ describe("End-to-End Business Workflows", () => {
     const client = await ClientService.createClient({
       companyName: "Idempotency Client",
       email: "idempotent@test.com",
+      country: "France",
     });
 
     const todayStr = new Date().toISOString().split("T")[0];
@@ -122,6 +123,8 @@ describe("End-to-End Business Workflows", () => {
       contractNumber: `CTR-IDEM-${Date.now()}`,
       startDate: todayStr,
       amount: 1200,
+      currency: "EUR",
+      paymentTerms: 30,
       billingFrequency: "Monthly",
       status: "Active",
       autoSetupRecurring: true,
@@ -159,6 +162,7 @@ describe("End-to-End Business Workflows", () => {
     const client = await ClientService.createClient({
       companyName: "Expiring Client Ltd",
       email: "renew@test.com",
+      country: "France",
     });
 
     const originalContractNumber = `CTR-ORIG-${Date.now()}`;
@@ -169,6 +173,8 @@ describe("End-to-End Business Workflows", () => {
       startDate: subDays(new Date(), 350).toISOString().split("T")[0],
       endDate: addDays(new Date(), 10).toISOString().split("T")[0],
       amount: 4000,
+      currency: "EUR",
+      paymentTerms: 30,
       billingFrequency: "Monthly",
       status: "Active",
       autoSetupRecurring: true,
@@ -205,10 +211,11 @@ describe("End-to-End Business Workflows", () => {
   });
 
   it("WORKFLOW 4: Partial Payment -> Partially Paid -> Full Payment -> Paid", async () => {
-    // 1. Create invoice with total 1200
+    // 1. Create invoice with total 1000
     const client = await ClientService.createClient({
       companyName: "Partial Payment Client",
       email: "partial@test.com",
+      country: "France",
     });
 
     const invoice = await InvoiceService.createInvoice({
@@ -221,7 +228,7 @@ describe("End-to-End Business Workflows", () => {
           description: "Technical Consulting Milestone",
           quantity: 1,
           unitPrice: 1000,
-          taxRate: 20, // total 1200
+          taxRate: 0, // total 1000
         },
       ],
     }, { autoSend: true });
@@ -238,12 +245,12 @@ describe("End-to-End Business Workflows", () => {
     const partiallyPaidInvoice = await InvoiceService.getInvoiceById(invoice.id);
     expect(partiallyPaidInvoice?.computedStatus).toBe("PartiallyPaid");
     expect(partiallyPaidInvoice?.amountPaid).toBe(500);
-    expect(partiallyPaidInvoice?.remainingBalance).toBe(700);
+    expect(partiallyPaidInvoice?.remainingBalance).toBe(500);
 
-    // 3. Record second installment of 700
+    // 3. Record second installment of 500
     await PaymentService.recordPayment({
       invoiceId: invoice.id,
-      amount: 700,
+      amount: 500,
       paymentDate: new Date().toISOString().split("T")[0],
       paymentMethod: "BankTransfer",
       reference: "INSTALLMENT-2",
@@ -251,7 +258,7 @@ describe("End-to-End Business Workflows", () => {
 
     const fullyPaidInvoice = await InvoiceService.getInvoiceById(invoice.id);
     expect(fullyPaidInvoice?.computedStatus).toBe("Paid");
-    expect(fullyPaidInvoice?.amountPaid).toBe(1200);
+    expect(fullyPaidInvoice?.amountPaid).toBe(1000);
     expect(fullyPaidInvoice?.remainingBalance).toBe(0);
   });
 
@@ -260,6 +267,7 @@ describe("End-to-End Business Workflows", () => {
     const client = await ClientService.createClient({
       companyName: "Saved Invoices Client SARL",
       email: "saved@client.com",
+      country: "France",
     });
 
     // 2. Create contract with attached PDF buffer
@@ -271,6 +279,8 @@ describe("End-to-End Business Workflows", () => {
         contractNumber: `CTR-SIGNED-${Date.now()}`,
         startDate: new Date().toISOString().split("T")[0],
         amount: 3500,
+        currency: "EUR",
+        paymentTerms: 30,
         billingFrequency: "Monthly",
         status: "Active",
         autoSetupRecurring: true,
@@ -302,9 +312,9 @@ describe("End-to-End Business Workflows", () => {
         dueDate: addDays(new Date(), 30).toISOString().split("T")[0],
         currency: "EUR",
         subtotal: 3500,
-        taxRate: 20,
-        taxAmount: 700,
-        total: 4200,
+        taxRate: 0,
+        taxAmount: 0,
+        total: 3500,
         status: "Sent",
         notes: "Monthly retainer invoice already prepared externally.",
       },
@@ -316,7 +326,7 @@ describe("End-to-End Business Workflows", () => {
     );
 
     expect(savedInvoice.id).toBeDefined();
-    expect(savedInvoice.total).toBe(4200);
+    expect(savedInvoice.total).toBe(3500);
     expect(savedInvoice.pdfUrl).toBeDefined();
     expect(savedInvoice.pdfUrl).toContain("/api/documents/stream");
 
@@ -329,7 +339,7 @@ describe("End-to-End Business Workflows", () => {
 
     // 4. Verify getInvoiceById correctly computes remaining balance
     const fetchedInvoice = await InvoiceService.getInvoiceById(savedInvoice.id);
-    expect(fetchedInvoice?.remainingBalance).toBe(4200);
+    expect(fetchedInvoice?.remainingBalance).toBe(3500);
     expect(fetchedInvoice?.computedStatus).toBe("Sent");
     expect(fetchedInvoice?.pdfUrl).toBe(savedInvoice.pdfUrl);
 

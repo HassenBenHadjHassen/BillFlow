@@ -4,89 +4,72 @@
 
 @layer base {
   :root {
-    --background: 220 20% 98%;
-    --foreground: 222 47% 11%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-
-    --primary: 226 70% 55%;
-    --primary-foreground: 210 40% 98%;
-
-    --secondary: 215 25% 93%;
-    --secondary-foreground: 222 47% 11%;
-
-    --muted: 215 20% 95%;
-    --muted-foreground: 215 16% 47%;
-
-    --accent: 215 25% 91%;
-    --accent-foreground: 222 47% 11%;
-
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 226 70% 55%;
-
-    --radius: 0.65rem;
+    --background: 210 20% 98%; --foreground: 221 24% 14%;
+    --card: 0 0% 100%; --card-foreground: 221 24% 14%;
+    --popover: 0 0% 100%; --popover-foreground: 221 24% 14%;
+    --primary: 221 24% 17%; --primary-foreground: 0 0% 100%;
+    --secondary: 216 20% 95%; --secondary-foreground: 221 24% 17%;
+    --muted: 216 20% 96%; --muted-foreground: 217 10% 44%;
+    --accent: 216 20% 94%; --accent-foreground: 221 24% 17%;
+    --destructive: 0 66% 48%; --destructive-foreground: 0 0% 100%;
+    --border: 216 18% 90%; --input: 216 16% 86%;
+    --ring: 219 68% 58%; --radius: 0.75rem;
   }
-
   .dark {
-    --background: 224 30% 8%;
-    --foreground: 210 40% 98%;
-
-    --card: 222 28% 12%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222 28% 12%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 226 75% 64%;
-    --primary-foreground: 222 47% 11%;
-
-    --secondary: 217 25% 18%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217 25% 18%;
-    --muted-foreground: 215 20% 65%;
-
-    --accent: 217 25% 20%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217 25% 18%;
-    --input: 217 25% 18%;
-    --ring: 226 75% 64%;
+    --background: 222 25% 9%; --foreground: 210 20% 96%;
+    --card: 222 23% 12%; --card-foreground: 210 20% 96%;
+    --popover: 222 23% 12%; --popover-foreground: 210 20% 96%;
+    --primary: 214 25% 88%; --primary-foreground: 222 25% 12%;
+    --secondary: 220 20% 18%; --secondary-foreground: 210 20% 96%;
+    --muted: 220 20% 16%; --muted-foreground: 216 12% 65%;
+    --accent: 220 20% 20%; --accent-foreground: 210 20% 96%;
+    --destructive: 0 60% 50%; --destructive-foreground: 0 0% 100%;
+    --border: 220 18% 22%; --input: 220 18% 26%; --ring: 219 68% 68%;
   }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
+  * { @apply border-border; }
+  html { overflow-x: clip; }
   body {
     @apply bg-background text-foreground antialiased font-sans;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
   }
+  button, input, select, textarea { font: inherit; }
+  button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+  button:not(:disabled), select { cursor: pointer; }
+  ::selection { background: #dbe7fc; color: #182238; }
 }
 
-/* Custom scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+@layer components {
+  .bf-shell { @apply flex h-dvh w-full overflow-hidden bg-background; }
+  .bf-content { @apply flex-1 overflow-y-auto px-5 py-7 sm:px-8 sm:py-9 lg:px-10; }
+  .bf-page { @apply mx-auto w-full max-w-[1440px] space-y-8; }
+  .bf-page-header { @apply flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between; }
+  .bf-eyebrow { @apply mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400; }
+  .bf-title { @apply text-[30px] font-semibold leading-tight tracking-[-0.04em] text-slate-900 sm:text-[34px] dark:text-white; }
+  .bf-subtitle { @apply mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400; }
+  .bf-field { @apply space-y-2; }
+  .bf-label { @apply block text-[13px] font-medium text-slate-700 dark:text-slate-300; }
+  .bf-select { @apply h-11 w-full rounded-lg border border-input bg-white px-3 text-sm text-slate-900 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:opacity-50 dark:bg-slate-900 dark:text-white; }
+  .bf-section-label { @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400; }
+  .bf-link { @apply inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white; }
+  .bf-avatar { @apply flex shrink-0 items-center justify-center rounded-full bg-slate-100 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300; }
+  .bf-icon-button { @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-slate-800 dark:hover:text-white; }
+  .bf-content h1 { @apply text-[30px] font-semibold leading-tight tracking-[-0.035em] sm:text-[34px]; }
+  .bf-content table { font-size: 0.8125rem; }
+  .bf-content table th { @apply py-3.5 text-[10px] font-medium uppercase tracking-[0.09em] text-slate-400; }
+  .bf-content table td { @apply py-4; }
+  .bf-content textarea { @apply rounded-lg border-input leading-relaxed; }
 }
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(156, 163, 175, 0.4);
-  border-radius: 9999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(156, 163, 175, 0.6);
+
+.bf-content > div, .bf-content section { min-width: 0; }
+input[type="number"] { font-variant-numeric: tabular-nums; }
+input[readonly] { color: #7b8492; background-color: #f8f9fb; }
+.dark input[readonly] { color: #94a3b8; background-color: #19212e; }
+:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d6dbe2; border: 1px solid transparent; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #b9c1cc; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }

@@ -8,415 +8,76 @@ import { Input } from "@/components/ui/input";
 import { saveInvoiceAction } from "@/actions/invoice.actions";
 import { useToast } from "@/components/ui/toast";
 import { formatCurrency, roundMoney } from "@/lib/financial";
-import { ClientDTO } from "@/types";
-import { UploadCloud, FileText, CheckCircle2, X } from "lucide-react";
+import { formatInvoiceNumber, INVOICE_TAX_RATE } from "@/lib/invoice";
+import type { ClientDTO } from "@/types";
+import { UploadCloud, FileText, Check, X, Clock3, FilePenLine, ArrowRight } from "lucide-react";
 
-interface InvoiceFormDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  clients?: ClientDTO[];
-  contracts?: any[];
-  preselectedClientId?: string;
-  preselectedContractId?: string;
-  onSuccess?: (invoice: any) => void;
+function localDate(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
+interface InvoiceFormDialogProps { open: boolean; onOpenChange: (open: boolean) => void; clients?: ClientDTO[]; contracts?: any[]; preselectedClientId?: string; preselectedContractId?: string; onSuccess?: (invoice: any) => void; }
+
+export function InvoiceFormDialog(props: InvoiceFormDialogProps) {
+  return <Dialog open={props.open} onOpenChange={props.onOpenChange} className="max-w-[620px]">{props.open && <InvoiceFormDialogContent {...props} />}</Dialog>;
 }
 
-export function InvoiceFormDialog({
-  open,
-  onOpenChange,
-  clients = [],
-  contracts = [],
-  preselectedClientId,
-  preselectedContractId,
-  onSuccess,
-}: InvoiceFormDialogProps) {
+function InvoiceFormDialogContent({ onOpenChange, clients = [], contracts = [], preselectedClientId, preselectedContractId, onSuccess }: InvoiceFormDialogProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const id = React.useId();
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-
-  const [clientId, setClientId] = React.useState(preselectedClientId || "");
+  const initialContract = contracts.find((contract) => contract.id === preselectedContractId);
+  const [clientId, setClientId] = React.useState(preselectedClientId || initialContract?.clientId || "");
   const [contractId, setContractId] = React.useState(preselectedContractId || "");
-  const [invoiceNumber, setInvoiceNumber] = React.useState("");
-  const [issueDate, setIssueDate] = React.useState(new Date().toISOString().split("T")[0]);
-  const [dueDate, setDueDate] = React.useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 30);
-    return d.toISOString().split("T")[0];
-  });
-  const [currency, setCurrency] = React.useState("EUR");
-  const [subtotal, setSubtotal] = React.useState<number | string>(1000);
-  const [taxRate, setTaxRate] = React.useState<number | string>(20);
-  const [taxAmount, setTaxAmount] = React.useState<number | string>(200);
-  const [total, setTotal] = React.useState<number | string>(1200);
+  const [numberOverride, setNumberOverride] = React.useState<string | null>(null);
+  const [namingDate] = React.useState(() => new Date());
+  const client = clients.find((item) => item.id === clientId);
+  const invoiceNumber = numberOverride ?? (client ? formatInvoiceNumber(client.companyName, namingDate) : "");
+  const [issueDate, setIssueDate] = React.useState(() => localDate(new Date()));
+  const [dueDate, setDueDate] = React.useState(() => { const date = new Date(); date.setDate(date.getDate() + 30); return localDate(date); });
+  const [currency, setCurrency] = React.useState(initialContract?.currency || "EUR");
+  const [subtotal, setSubtotal] = React.useState<number | string>(initialContract?.amount ?? "");
+  const total = subtotal === "" ? 0 : roundMoney(Number(subtotal) || 0);
   const [status, setStatus] = React.useState<"Paid" | "Sent" | "Draft">("Sent");
-  const [paymentDate, setPaymentDate] = React.useState(new Date().toISOString().split("T")[0]);
+  const [paymentDate, setPaymentDate] = React.useState(() => localDate(new Date()));
   const [paymentMethod, setPaymentMethod] = React.useState("BankTransfer");
   const [notes, setNotes] = React.useState("");
-  const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
+  const [file, setFile] = React.useState<File | null>(null);
 
-  // Sync client
-  React.useEffect(() => {
-    if (preselectedClientId) {
-      setClientId(preselectedClientId);
-    } else if (clients.length > 0 && !clientId) {
-      setClientId(clients[0].id);
-    }
-  }, [preselectedClientId, clients, clientId]);
-
-  // Sync contract
-  React.useEffect(() => {
-    if (preselectedContractId) {
-      setContractId(preselectedContractId);
-    }
-  }, [preselectedContractId]);
-
-  // Suggest default invoice number when opened
-  React.useEffect(() => {
-    if (open && !invoiceNumber) {
-      const year = new Date().getFullYear();
-      const rand = Math.floor(100 + Math.random() * 900);
-      setInvoiceNumber(`INV-${year}-${rand}`);
-    }
-  }, [open, invoiceNumber]);
-
-  // Recalculate taxes
-  const handleSubtotalChange = (val: string) => {
-    setSubtotal(val);
-    const sub = parseFloat(val) || 0;
-    const rate = parseFloat(String(taxRate)) || 0;
-    const tax = roundMoney(sub * (rate / 100));
-    setTaxAmount(tax);
-    setTotal(roundMoney(sub + tax));
-  };
-
-  const handleTaxRateChange = (val: string) => {
-    setTaxRate(val);
-    const sub = parseFloat(String(subtotal)) || 0;
-    const rate = parseFloat(val) || 0;
-    const tax = roundMoney(sub * (rate / 100));
-    setTaxAmount(tax);
-    setTotal(roundMoney(sub + tax));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!clientId) {
-      setError("Please select a client.");
-      return;
-    }
-    if (!invoiceNumber.trim()) {
-      setError("Please specify an invoice number.");
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    const formData = new FormData();
-    if (selectedFile) {
-      formData.append("file", selectedFile);
-    }
-    formData.append("invoiceNumber", invoiceNumber.trim());
-    formData.append("clientId", clientId);
-    if (contractId) formData.append("contractId", contractId);
-    formData.append("issueDate", issueDate);
-    formData.append("dueDate", dueDate);
-    formData.append("currency", currency);
-    formData.append("subtotal", String(subtotal));
-    formData.append("taxRate", String(taxRate));
-    formData.append("taxAmount", String(taxAmount));
-    formData.append("total", String(total));
-    formData.append("status", status);
-    if (notes) formData.append("notes", notes);
-    if (status === "Paid") {
-      formData.append("paymentDate", paymentDate);
-      formData.append("paymentMethod", paymentMethod);
-    }
-
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!clientId || !invoiceNumber.trim()) { setError("Choose a client and enter an invoice number."); return; }
+    setIsLoading(true); setError(null);
+    const data = new FormData();
+    if (file) data.append("file", file);
+    for (const [key, value] of Object.entries({ invoiceNumber: invoiceNumber.trim(), clientId, issueDate, dueDate, currency, subtotal: String(subtotal), taxRate: String(INVOICE_TAX_RATE), taxAmount: "0", total: String(total), status })) data.append(key, value);
+    if (contractId) data.append("contractId", contractId);
+    if (notes) data.append("notes", notes);
+    if (status === "Paid") { data.append("paymentDate", paymentDate); data.append("paymentMethod", paymentMethod); }
     try {
-      const res = await saveInvoiceAction(formData);
-      if (res.success && res.invoice) {
-        toast({
-          title: "Invoice Recorded",
-          description: `Invoice ${res.invoice.invoiceNumber} recorded successfully.`,
-          type: "success",
-        });
-        onSuccess?.(res.invoice);
-        onOpenChange(false);
-        router.refresh();
-      } else {
-        setError(res.error || "Failed to record invoice.");
-      }
-    } catch {
-      setError("An unexpected error occurred while saving invoice.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogHeader>
-        <DialogTitle>Record Invoice</DialogTitle>
-        <DialogDescription>
-          Save and track an existing invoice, store its PDF document, and record payment ledger entries.
-        </DialogDescription>
-      </DialogHeader>
-
-      {error && (
-        <div className="mb-4 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
-          {error}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* PDF File Upload */}
-        <div className="space-y-1">
-          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-            Invoice PDF Document (Optional)
-          </label>
-          {selectedFile ? (
-            <div className="p-3 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300 text-xs font-medium">
-                <FileText className="h-4 w-4" />
-                <span>{selectedFile.name} ({(selectedFile.size / 1024).toFixed(0)} KB)</span>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setSelectedFile(null)}
-                className="h-6 w-6 text-slate-400 hover:text-rose-600"
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          ) : (
-            <div className="border border-dashed border-slate-200 dark:border-slate-800 rounded-xl p-3 text-center bg-slate-50/50 dark:bg-slate-900/50">
-              <input
-                type="file"
-                accept="application/pdf"
-                id="invoice-dialog-file"
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    setSelectedFile(e.target.files[0]);
-                  }
-                }}
-              />
-              <label
-                htmlFor="invoice-dialog-file"
-                className="cursor-pointer flex items-center justify-center gap-2 text-xs text-indigo-600 dark:text-indigo-400 font-medium hover:underline"
-              >
-                <UploadCloud className="h-4 w-4" />
-                <span>Upload Invoice PDF</span>
-              </label>
-              <p className="text-[10px] text-slate-400 mt-1">Saved securely to local private storage</p>
-            </div>
-          )}
-        </div>
-
-        {/* Client & Invoice Number */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Client *</label>
-            <select
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              required
-              className="w-full h-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500"
-            >
-              <option value="" disabled>Select Client</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.companyName}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Invoice Number *</label>
-            <Input
-              required
-              value={invoiceNumber}
-              onChange={(e) => setInvoiceNumber(e.target.value)}
-              placeholder="INV-2026-001"
-              className="font-mono text-sm"
-            />
-          </div>
-        </div>
-
-        {/* Linked Contract (Optional) */}
-        <div className="space-y-1">
-          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-            Linked Contract (Optional)
-          </label>
-          <select
-            value={contractId}
-            onChange={(e) => {
-              const val = e.target.value;
-              setContractId(val);
-              if (val) {
-                const found = contracts.find((c) => c.id === val);
-                if (found) {
-                  handleSubtotalChange(String(found.amount));
-                  setCurrency(found.currency || "EUR");
-                }
-              }
-            }}
-            className="w-full h-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500"
-          >
-            <option value="">No linked contract (Standalone Invoice)</option>
-            {contracts
-              .filter((c) => !clientId || c.clientId === clientId)
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.contractNumber} &bull; {c.title} ({formatCurrency(c.amount, c.currency)} / {c.billingFrequency})
-                </option>
-              ))}
-          </select>
-        </div>
-
-        {/* Dates */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Issue Date *</label>
-            <Input
-              type="date"
-              required
-              value={issueDate}
-              onChange={(e) => setIssueDate(e.target.value)}
-              className="text-sm"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Due Date *</label>
-            <Input
-              type="date"
-              required
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="text-sm"
-            />
-          </div>
-        </div>
-
-        {/* Financial Breakdown */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Subtotal *</label>
-            <Input
-              type="number"
-              step="0.01"
-              required
-              value={subtotal}
-              onChange={(e) => handleSubtotalChange(e.target.value)}
-              className="text-sm"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">VAT (%)</label>
-            <Input
-              type="number"
-              step="0.1"
-              value={taxRate}
-              onChange={(e) => handleTaxRateChange(e.target.value)}
-              className="text-sm"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Total (EUR) *</label>
-            <Input
-              type="number"
-              step="0.01"
-              required
-              value={total}
-              onChange={(e) => setTotal(e.target.value)}
-              className="text-sm font-bold text-indigo-600 dark:text-indigo-400"
-            />
-          </div>
-        </div>
-
-        {/* Status Selection */}
-        <div className="space-y-1">
-          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Payment Status *</label>
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { id: "Sent", label: "Sent / Pending" },
-              { id: "Paid", label: "Paid" },
-              { id: "Draft", label: "Draft" },
-            ].map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setStatus(opt.id as any)}
-                className={`py-1.5 text-xs font-medium rounded-lg border transition-all ${
-                  status === opt.id
-                    ? "bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950 dark:border-indigo-400 dark:text-indigo-200"
-                    : "border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Paid details */}
-        {status === "Paid" && (
-          <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-emerald-900 dark:text-emerald-200">
-                  Got Paid At (Payment Date) *
-                </label>
-                <Input
-                  type="date"
-                  required
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                  className="text-sm h-8 bg-white dark:bg-slate-900 border-emerald-300 dark:border-emerald-700"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-emerald-900 dark:text-emerald-200">
-                  Payment Method
-                </label>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="w-full h-8 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 px-2 text-xs text-slate-900 dark:text-slate-100 outline-none"
-                >
-                  <option value="BankTransfer">Bank Transfer (SEPA / Wire)</option>
-                  <option value="CreditCard">Credit / Debit Card</option>
-                  <option value="Stripe">Stripe Checkout</option>
-                  <option value="Check">Bank Check</option>
-                  <option value="Cash">Cash Settlement</option>
-                  <option value="Other">Other Method</option>
-                </select>
-              </div>
-            </div>
-            <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
-              Set the exact date the money arrived in your account (e.g. invoice issued end of month, paid at start of next month).
-            </p>
-          </div>
-        )}
-
-        <DialogFooter className="pt-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="submit" isLoading={isLoading} className="bg-indigo-600 hover:bg-indigo-700 text-white">
-            <CheckCircle2 className="h-4 w-4 mr-1.5" />
-            Save Invoice
-          </Button>
-        </DialogFooter>
-      </form>
-    </Dialog>
-  );
+      const result = await saveInvoiceAction(data);
+      if (result.success && result.invoice) { toast({ title: "Invoice saved", description: `${result.invoice.invoiceNumber} is ready in your workspace.`, type: "success" }); onSuccess?.(result.invoice); onOpenChange(false); router.refresh(); }
+      else setError(result.error || "Could not save this invoice.");
+    } catch { setError("Could not save this invoice. Please try again."); }
+    finally { setIsLoading(false); }
+  }
+  const paymentStates = [{ value: "Sent", label: "Awaiting payment", icon: Clock3 }, { value: "Paid", label: "Paid", icon: Check }, { value: "Draft", label: "Draft", icon: FilePenLine }] as const;
+  return <>
+    <DialogHeader><p className="bf-eyebrow mb-0">Billing</p><DialogTitle>New invoice</DialogTitle><DialogDescription>Add an invoice and keep its details and payment in one place.</DialogDescription></DialogHeader>
+    {error && <p role="alert" className="mb-5 rounded-lg border border-rose-100 bg-rose-50 p-3 text-xs leading-relaxed text-rose-700">{error}</p>}
+    <form onSubmit={submit} className="space-y-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="bf-field"><label className="bf-label" htmlFor={`${id}-client`}>Client <span className="text-slate-400">*</span></label><select id={`${id}-client`} required className="bf-select" value={clientId} onChange={(event) => { setClientId(event.target.value); setContractId(""); setNumberOverride(null); }}><option value="" disabled>Choose a client</option>{clients.map((item) => <option key={item.id} value={item.id}>{item.companyName}</option>)}</select></div>
+        <div className="bf-field"><label className="bf-label" htmlFor={`${id}-number`}>Invoice number <span className="text-slate-400">*</span></label><Input id={`${id}-number`} required placeholder="F20261103-ALIZEE" value={invoiceNumber} onChange={(event) => setNumberOverride(event.target.value)} className="font-mono text-xs" /></div>
+      </div>
+      <div className="bf-field"><label className="bf-label" htmlFor={`${id}-contract`}>Contract <span className="ml-1 text-xs font-normal text-slate-400">Optional</span></label><select id={`${id}-contract`} className="bf-select" value={contractId} onChange={(event) => { const value = event.target.value; setContractId(value); const contract = contracts.find((item) => item.id === value); if (contract) { setSubtotal(contract.amount); setCurrency(contract.currency || "EUR"); } }}><option value="">Standalone invoice</option>{contracts.filter((item) => item.clientId === clientId).map((item) => <option key={item.id} value={item.id}>{item.contractNumber} · {item.title}</option>)}</select></div>
+      <div className="grid grid-cols-2 gap-4"><div className="bf-field"><label className="bf-label" htmlFor={`${id}-issued`}>Issue date</label><Input id={`${id}-issued`} type="date" required value={issueDate} onChange={(event) => setIssueDate(event.target.value)} /></div><div className="bf-field"><label className="bf-label" htmlFor={`${id}-due`}>Due date</label><Input id={`${id}-due`} type="date" required value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></div></div>
+      <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-4"><div className="bf-field"><label className="bf-label" htmlFor={`${id}-amount`}>Amount <span className="text-slate-400">*</span></label><Input id={`${id}-amount`} type="number" min="0" step="0.01" required placeholder="0.00" value={subtotal} onChange={(event) => setSubtotal(event.target.value)} /></div><div className="bf-field"><label className="bf-label" htmlFor={`${id}-currency`}>Currency</label><select id={`${id}-currency`} className="bf-select" value={currency} onChange={(event) => setCurrency(event.target.value)}><option>EUR</option><option>USD</option><option>GBP</option></select></div></div>
+      <div className="flex items-center justify-between rounded-xl border border-border bg-slate-50/70 px-4 py-4 dark:bg-slate-800/40"><div><span className="text-xs font-medium text-slate-600 dark:text-slate-300">Invoice total</span><span className="ml-2 rounded border border-border bg-white px-1.5 py-0.5 text-[10px] text-slate-400 dark:bg-slate-900">0% VAT</span></div><output className="text-xl font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white" aria-live="polite">{formatCurrency(total, currency)}</output></div>
+      <fieldset><legend className="bf-label mb-2">Payment status</legend><div className="grid grid-cols-3 gap-2">{paymentStates.map(({ value, label, icon: Icon }) => <button type="button" key={value} aria-pressed={status === value} onClick={() => setStatus(value)} className={`flex min-h-11 items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-[11px] font-medium transition-colors ${status === value ? "border-slate-800 bg-slate-50 text-slate-900 dark:border-slate-400 dark:bg-slate-800 dark:text-white" : "border-border text-slate-400 hover:border-slate-300 hover:text-slate-700"}`}><Icon className="hidden h-3.5 w-3.5 sm:block" />{label}</button>)}</div></fieldset>
+      {status === "Paid" && <div className="grid grid-cols-1 gap-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 sm:grid-cols-2 dark:border-emerald-900 dark:bg-emerald-950/20"><div className="bf-field"><label className="bf-label" htmlFor={`${id}-paid`}>Payment received on</label><Input id={`${id}-paid`} type="date" required value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></div><div className="bf-field"><label className="bf-label" htmlFor={`${id}-method`}>Payment method</label><select id={`${id}-method`} className="bf-select" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="BankTransfer">Bank transfer</option><option value="Card">Card</option><option value="Cash">Cash</option><option value="PayPal">PayPal</option><option value="Other">Other</option></select></div></div>}
+      <div className="bf-field"><label className="bf-label" htmlFor={`${id}-file`}>Invoice PDF <span className="ml-1 text-xs font-normal text-slate-400">Optional</span></label>{file ? <div className="flex items-center gap-3 rounded-xl border border-border p-3.5"><FileText className="h-5 w-5 shrink-0 text-slate-400" /><span className="min-w-0 flex-1 truncate text-xs text-slate-700 dark:text-slate-200">{file.name}</span><button type="button" onClick={() => setFile(null)} className="bf-icon-button h-7 w-7" aria-label="Remove attachment"><X className="h-4 w-4" /></button></div> : <label htmlFor={`${id}-file`} className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-4 transition-colors hover:border-slate-400 hover:bg-slate-50 focus-within:ring-2 focus-within:ring-ring dark:border-slate-700 dark:bg-slate-900"><span className="bf-avatar h-9 w-9 rounded-lg"><UploadCloud className="h-4 w-4" /></span><span><span className="block text-xs font-medium text-slate-600 dark:text-slate-300">Click to upload your invoice</span><span className="mt-1 block text-[11px] text-slate-400">PDF, up to 25 MB</span></span><input id={`${id}-file`} type="file" className="sr-only" accept="application/pdf,.pdf" onChange={(event) => { const selected = event.target.files?.[0]; if (!selected) return; if (selected.size > 25 * 1024 * 1024) { setError("Choose a PDF smaller than 25 MB."); return; } if (selected.type !== "application/pdf" && !selected.name.toLowerCase().endsWith(".pdf")) { setError("Choose a PDF file."); return; } setError(null); setFile(selected); }} /></label>}</div>
+      <div className="bf-field"><label className="bf-label" htmlFor={`${id}-notes`}>Notes <span className="ml-1 text-xs font-normal text-slate-400">Optional</span></label><Input id={`${id}-notes`} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Anything you’d like to remember about this invoice" /></div>
+      <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button type="submit" isLoading={isLoading}>Save invoice <ArrowRight className="h-3.5 w-3.5" /></Button></DialogFooter>
+    </form>
+  </>;
 }

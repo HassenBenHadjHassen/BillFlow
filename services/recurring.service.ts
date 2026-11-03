@@ -1,5 +1,6 @@
 import db from "@/lib/db";
 import { addMonths, addYears, subDays, startOfDay, endOfDay } from "date-fns";
+import { INVOICE_TAX_RATE } from "@/lib/invoice";
 import { InvoiceService } from "./invoice.service";
 
 export interface RecurringGenerationResult {
@@ -161,7 +162,7 @@ export class RecurringBillingService {
           description: `${contract.title} - ${config.frequency} fee`,
           quantity: 1,
           unitPrice: config.amount,
-          taxRate: 20,
+          taxRate: INVOICE_TAX_RATE,
         },
       ],
     }, { autoSend: true });

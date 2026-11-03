@@ -1,6 +1,5 @@
 import { ClientService } from "@/services/client.service";
 import { ContractService } from "@/services/contract.service";
-import { InvoiceService } from "@/services/invoice.service";
 import { InvoiceForm } from "@/components/invoices/invoice-form";
 
 export const dynamic = "force-dynamic";
@@ -17,10 +16,9 @@ export default async function NewInvoicePage({
   }>;
 }) {
   const { clientId, contractId, amount, periodStart, periodEnd } = await searchParams;
-  const [clients, contracts, suggestedInvoiceNumber] = await Promise.all([
+  const [clients, contracts] = await Promise.all([
     ClientService.getClients(),
     ContractService.getContracts(),
-    InvoiceService.generateInvoiceNumber(),
   ]);
 
   return (
@@ -32,7 +30,6 @@ export default async function NewInvoicePage({
       initialAmount={amount ? Number(amount) : undefined}
       initialPeriodStart={periodStart}
       initialPeriodEnd={periodEnd}
-      suggestedInvoiceNumber={suggestedInvoiceNumber}
     />
   );
 }

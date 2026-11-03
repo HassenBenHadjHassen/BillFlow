@@ -42,7 +42,7 @@ export function UpcomingEventsList({ events }: { events: UpcomingEvent[] }) {
   return (
     <div className="divide-y divide-slate-100 dark:divide-slate-800">
       {events.map((ev) => (
-        <div key={ev.id} className="py-3 flex items-center justify-between gap-3 group">
+        <div key={ev.id} className="py-3.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 group">
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 shrink-0">
               {getEventIcon(ev.type)}
@@ -63,7 +63,8 @@ export function UpcomingEventsList({ events }: { events: UpcomingEvent[] }) {
             </Badge>
             <Link
               href={ev.href}
-              className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+              aria-label={`View ${ev.title}`}
+              className="bf-icon-button h-7 w-7"
             >
               <ArrowRight className="h-4 w-4" />
             </Link>

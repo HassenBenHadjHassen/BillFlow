@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { saveInvoiceAction } from "@/actions/invoice.actions";
 import { formatCurrency, roundMoney } from "@/lib/financial";
 import { useToast } from "@/components/ui/toast";
+import { formatInvoiceNumber, INVOICE_TAX_RATE } from "@/lib/invoice";
 import { ClientDTO, ContractDTO } from "@/types";
 import { addDays, format } from "date-fns";
 
@@ -35,7 +36,6 @@ export function InvoiceForm({
   initialAmount,
   initialPeriodStart,
   initialPeriodEnd,
-  suggestedInvoiceNumber,
 }: {
   clients: ClientDTO[];
   contracts: ContractDTO[];
@@ -44,7 +44,6 @@ export function InvoiceForm({
   initialAmount?: number;
   initialPeriodStart?: string;
   initialPeriodEnd?: string;
-  suggestedInvoiceNumber?: string;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -57,24 +56,21 @@ export function InvoiceForm({
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
 
-  const [invoiceNumber, setInvoiceNumber] = React.useState(
-    suggestedInvoiceNumber || `INV-${new Date().getFullYear()}-001`
-  );
-  const [clientId, setClientId] = React.useState(initialClientId || (clients[0]?.id || ""));
+  const [invoiceNumberOverride, setInvoiceNumberOverride] = React.useState<string | null>(null);
+  const [namingDate, setNamingDate] = React.useState(() => new Date());
+  const [clientId, setClientId] = React.useState(initialClientId || contracts.find((contract) => contract.id === initialContractId)?.clientId || "");
+  const selectedClient = clients.find((client) => client.id === clientId);
+  const invoiceNumber = invoiceNumberOverride ?? (selectedClient ? formatInvoiceNumber(selectedClient.companyName, namingDate) : "");
   const [contractId, setContractId] = React.useState(initialContractId || "");
   const [issueDate, setIssueDate] = React.useState(format(new Date(), "yyyy-MM-dd"));
   const [dueDate, setDueDate] = React.useState(format(addDays(new Date(), 30), "yyyy-MM-dd"));
   const [currency, setCurrency] = React.useState("EUR");
 
-  // Financial amounts
-  const [subtotal, setSubtotal] = React.useState<number | string>(initialAmount ?? 1000);
-  const [taxRate, setTaxRate] = React.useState<number | string>(20);
-  const [taxAmount, setTaxAmount] = React.useState<number | string>(
-    roundMoney((Number(initialAmount ?? 1000) * 20) / 100)
-  );
-  const [total, setTotal] = React.useState<number | string>(
-    roundMoney(Number(initialAmount ?? 1000) + (Number(initialAmount ?? 1000) * 20) / 100)
-  );
+  // All invoices are tax-free; the total follows the entered amount.
+  const [subtotal, setSubtotal] = React.useState<number | string>(initialAmount ?? "");
+  const taxRate = INVOICE_TAX_RATE;
+  const taxAmount = 0;
+  const total = subtotal === "" ? "" : roundMoney(Number(subtotal) || 0);
 
   // Status & payment
   const [status, setStatus] = React.useState<string>("Sent");
@@ -89,27 +85,6 @@ export function InvoiceForm({
   // Filter contracts for selected client
   const clientContracts = contracts.filter((c) => c.clientId === clientId);
 
-  // Auto-calculate tax and total when subtotal or taxRate changes
-  const handleSubtotalChange = (val: string) => {
-    setSubtotal(val);
-    const subNum = parseFloat(val) || 0;
-    const rateNum = parseFloat(String(taxRate)) || 0;
-    const calculatedTax = roundMoney((subNum * rateNum) / 100);
-    const calculatedTotal = roundMoney(subNum + calculatedTax);
-    setTaxAmount(calculatedTax);
-    setTotal(calculatedTotal);
-  };
-
-  const handleTaxRateChange = (val: string) => {
-    setTaxRate(val);
-    const subNum = parseFloat(String(subtotal)) || 0;
-    const rateNum = parseFloat(val) || 0;
-    const calculatedTax = roundMoney((subNum * rateNum) / 100);
-    const calculatedTotal = roundMoney(subNum + calculatedTax);
-    setTaxAmount(calculatedTax);
-    setTotal(calculatedTotal);
-  };
-
   const handleContractChange = (newContractId: string) => {
     setContractId(newContractId);
     if (newContractId) {
@@ -117,7 +92,7 @@ export function InvoiceForm({
       if (selected) {
         setCurrency(selected.currency || "EUR");
         if (selected.amount && !initialAmount) {
-          handleSubtotalChange(String(selected.amount));
+          setSubtotal(selected.amount);
         }
         if (selected.paymentTerms) {
           setDueDate(format(addDays(new Date(issueDate), selected.paymentTerms), "yyyy-MM-dd"));
@@ -158,6 +133,14 @@ export function InvoiceForm({
   };
 
   const handleSubmit = async (overrideStatus?: string) => {
+    if (!clientId || !invoiceNumber.trim()) {
+      setError("Please select a client and enter an invoice number.");
+      return;
+    }
+    if (subtotal === "" || !Number.isFinite(Number(subtotal)) || Number(subtotal) < 0) {
+      setError("Please enter a valid invoice amount.");
+      return;
+    }
     setIsLoading(true);
     setError(null);
 
@@ -194,11 +177,25 @@ export function InvoiceForm({
           description: `Invoice ${res.invoice.invoiceNumber} recorded in system.`,
           type: "success",
         });
-        if (contractId) {
-          router.push(`/contracts/${contractId}`);
-        } else {
-          router.push("/invoices");
-        }
+        const destination = contractId ? `/contracts/${contractId}` : "/invoices";
+        const now = new Date();
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        setInvoiceNumberOverride(null);
+        setNamingDate(now);
+        setClientId("");
+        setContractId("");
+        setIssueDate(format(now, "yyyy-MM-dd"));
+        setDueDate(format(addDays(now, 30), "yyyy-MM-dd"));
+        setCurrency("EUR");
+        setSubtotal("");
+        setStatus("Sent");
+        setPaymentDate(format(now, "yyyy-MM-dd"));
+        setPaymentMethod("BankTransfer");
+        setBillingPeriodStart("");
+        setBillingPeriodEnd("");
+        setNotes("");
+        router.push(destination);
         router.refresh();
       } else {
         setError(res.error || "Failed to save invoice.");
@@ -211,22 +208,22 @@ export function InvoiceForm({
   };
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="bf-page max-w-5xl">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bf-page-header">
         <div className="flex items-center gap-3">
           <Link href="/invoices">
-            <Button variant="outline" size="icon" className="h-9 w-9">
+            <Button variant="outline" size="icon" className="h-9 w-9" aria-label="Back to invoices">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              <Receipt className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
-              Save &amp; Record Invoice
+            <h1 className="bf-title">
+
+              New invoice
             </h1>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-              Attach your ready invoice PDF and record its financial metadata in the ledger.
+            <p className="bf-subtitle">
+              Add the details and attach your invoice when you’re ready.
             </p>
           </div>
         </div>
@@ -244,7 +241,7 @@ export function InvoiceForm({
             type="button"
             onClick={() => handleSubmit(status)}
             isLoading={isLoading}
-            className="bg-indigo-600 hover:bg-indigo-700 shadow-sm text-white"
+            className=""
           >
             Save Invoice
           </Button>
@@ -261,15 +258,15 @@ export function InvoiceForm({
       {/* Main Grid: Left Upload Zone & Right Financial Metadata */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: PDF File Upload (5 cols) */}
-        <div className="lg:col-span-5 space-y-4">
-          <Card className="border-dashed border-2">
+        <div className="lg:col-span-4 space-y-5">
+          <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <UploadCloud className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 Invoice PDF Document
               </CardTitle>
               <CardDescription className="text-xs">
-                Attach your finalized invoice PDF file (optional or attach later)
+                Upload a PDF now, or add one later.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -333,7 +330,7 @@ export function InvoiceForm({
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
                     <FileCheck className="h-4 w-4" />
-                    <span>File attached — will be saved to secure in-project vault</span>
+                    <span>Attached and ready to save</span>
                   </div>
                 </div>
               )}
@@ -371,12 +368,12 @@ export function InvoiceForm({
         </div>
 
         {/* Right Column: Invoice Details & Financials (7 cols) */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className="lg:col-span-8 space-y-6">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Invoice Details</CardTitle>
               <CardDescription className="text-xs">
-                Essential metadata to track this invoice in reports, client profiles, and tax records.
+                Client, dates and amount for this invoice.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -389,8 +386,8 @@ export function InvoiceForm({
                   <Input
                     required
                     value={invoiceNumber}
-                    onChange={(e) => setInvoiceNumber(e.target.value)}
-                    placeholder="e.g. INV-2026-001"
+                    onChange={(e) => setInvoiceNumberOverride(e.target.value)}
+                    placeholder="F20261103-ALIZEE"
                     className="font-mono text-sm"
                   />
                   <p className="text-[11px] text-slate-500">
@@ -408,9 +405,11 @@ export function InvoiceForm({
                     onChange={(e) => {
                       setClientId(e.target.value);
                       setContractId("");
+                      setInvoiceNumberOverride(null);
                     }}
                     className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:border-indigo-500 transition-colors shadow-xs"
                   >
+                    <option value="" disabled>Select Client</option>
                     {clients.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.companyName}
@@ -502,7 +501,7 @@ export function InvoiceForm({
                       step="0.01"
                       required
                       value={subtotal}
-                      onChange={(e) => handleSubtotalChange(e.target.value)}
+                      onChange={(e) => setSubtotal(e.target.value)}
                       placeholder="1000.00"
                     />
                   </div>
@@ -515,8 +514,7 @@ export function InvoiceForm({
                       type="number"
                       step="0.1"
                       value={taxRate}
-                      onChange={(e) => handleTaxRateChange(e.target.value)}
-                      placeholder="20"
+                      readOnly
                     />
                   </div>
 
@@ -528,13 +526,7 @@ export function InvoiceForm({
                       type="number"
                       step="0.01"
                       value={taxAmount}
-                      onChange={(e) => {
-                        setTaxAmount(e.target.value);
-                        const sub = parseFloat(String(subtotal)) || 0;
-                        const tax = parseFloat(e.target.value) || 0;
-                        setTotal(roundMoney(sub + tax));
-                      }}
-                      placeholder="200.00"
+                      readOnly
                     />
                   </div>
                 </div>
@@ -548,8 +540,8 @@ export function InvoiceForm({
                     step="0.01"
                     required
                     value={total}
-                    onChange={(e) => setTotal(e.target.value)}
-                    placeholder="1200.00"
+                    readOnly
+                    placeholder="0.00"
                     className="text-base font-bold text-indigo-600 dark:text-indigo-400"
                   />
                 </div>

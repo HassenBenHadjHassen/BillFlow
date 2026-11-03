@@ -2,91 +2,55 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard,
-  Users,
-  FileCheck2,
-  Receipt,
-  CreditCard,
-  FolderOpen,
-  CalendarSync,
-  BarChart3,
-  Settings,
-  Sparkles,
-} from "lucide-react";
+import { LayoutDashboard, Users, FileCheck2, Receipt, CreditCard, FolderOpen, CalendarSync, BarChart3, Settings, X } from "lucide-react";
 import { clsx } from "clsx";
 
-const navItems = [
-  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Clients", href: "/clients", icon: Users },
-  { name: "Contracts", href: "/contracts", icon: FileCheck2 },
-  { name: "Invoices", href: "/invoices", icon: Receipt },
-  { name: "Payments", href: "/payments", icon: CreditCard },
-  { name: "Documents", href: "/documents", icon: FolderOpen },
-  { name: "Recurring Billing", href: "/recurring", icon: CalendarSync },
-  { name: "Reports", href: "/reports", icon: BarChart3 },
-  { name: "Settings", href: "/settings", icon: Settings },
+const groups = [
+  { label: "Workspace", items: [
+    { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
+    { name: "Invoices", href: "/invoices", icon: Receipt },
+    { name: "Payments", href: "/payments", icon: CreditCard },
+  ] },
+  { label: "Business", items: [
+    { name: "Clients", href: "/clients", icon: Users },
+    { name: "Contracts", href: "/contracts", icon: FileCheck2 },
+    { name: "Recurring billing", href: "/recurring", icon: CalendarSync },
+  ] },
+  { label: "Insights", items: [
+    { name: "Reports", href: "/reports", icon: BarChart3 },
+    { name: "Documents", href: "/documents", icon: FolderOpen },
+  ] },
 ];
 
 export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void }) {
   const pathname = usePathname();
-
   return (
-    <aside className="w-64 border-r border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/90 backdrop-blur-md flex flex-col h-full select-none">
-      {/* Brand Header */}
-      <div className="h-16 px-6 flex items-center gap-3 border-b border-slate-200/70 dark:border-slate-800">
-        <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-sky-400 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
-          <Sparkles className="h-5 w-5" />
-        </div>
-        <div className="flex flex-col">
-          <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white">
-            Billflow
-          </span>
-          <span className="text-[10px] uppercase font-semibold text-indigo-600 dark:text-indigo-400 tracking-wider">
-            Private Edition
-          </span>
-        </div>
+    <aside className="flex h-full w-[232px] shrink-0 flex-col border-r border-border bg-white dark:bg-slate-900">
+      <div className="flex h-20 shrink-0 items-center justify-between px-7">
+        <Link href="/dashboard" onClick={onCloseMobile} className="flex items-center gap-2.5" aria-label="Billflow home">
+          <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-slate-900 text-white dark:bg-white dark:text-slate-900"><Receipt className="h-[18px] w-[18px]" strokeWidth={1.7} /></span>
+          <span className="text-[22px] font-semibold tracking-[-0.06em] text-slate-900 dark:text-white">billflow<span className="text-slate-400">.</span></span>
+        </Link>
+        {onCloseMobile && <button type="button" onClick={onCloseMobile} className="bf-icon-button -mr-3" aria-label="Close navigation"><X className="h-4 w-4" /></button>}
       </div>
-
-      {/* Nav List */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
-          const Icon = item.icon;
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onCloseMobile}
-              className={clsx(
-                "flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all group",
-                isActive
-                  ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 shadow-xs"
-                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-200"
-              )}
-            >
-              <Icon
-                className={clsx(
-                  "h-4 w-4 transition-colors shrink-0",
-                  isActive
-                    ? "text-indigo-600 dark:text-indigo-400"
-                    : "text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300"
-                )}
-              />
-              <span>{item.name}</span>
-            </Link>
-          );
-        })}
+      <nav aria-label="Main navigation" className="flex-1 space-y-7 overflow-y-auto px-4 pb-6 pt-7">
+        {groups.map((group) => (
+          <div key={group.label}>
+            <p className="mb-2.5 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{group.label}</p>
+            <div className="space-y-1">
+              {group.items.map(({ name, href, icon: Icon }) => {
+                const active = pathname === href || pathname.startsWith(href + "/");
+                return <Link key={href} href={href} onClick={onCloseMobile} aria-current={active ? "page" : undefined} className={clsx("group flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] transition-colors", active ? "bg-slate-100 font-semibold text-slate-950 dark:bg-slate-800 dark:text-white" : "font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white")}>
+                  <Icon className={clsx("h-[17px] w-[17px] shrink-0", active ? "text-slate-800 dark:text-white" : "text-slate-400")} strokeWidth={1.7} />
+                  <span>{name}</span>{active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-slate-700 dark:bg-slate-300" />}
+                </Link>;
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
-
-      {/* Footer / Status */}
-      <div className="p-4 border-t border-slate-200/70 dark:border-slate-800 text-xs text-slate-400 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Single-User Active</span>
-        </div>
-        <span>v1.0</span>
+      <div className="border-t border-border px-4 py-4">
+        <Link href="/settings" onClick={onCloseMobile} aria-current={pathname.startsWith("/settings") ? "page" : undefined} className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"><Settings className="h-[17px] w-[17px]" strokeWidth={1.7} /> Settings</Link>
       </div>
     </aside>
   );

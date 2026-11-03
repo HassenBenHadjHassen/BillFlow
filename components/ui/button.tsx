@@ -10,27 +10,28 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = "default", size = "md", isLoading, children, disabled, ...props }, ref) => {
-    const baseStyles = "inline-flex items-center justify-center font-medium rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98]";
+    const baseStyles = "inline-flex shrink-0 items-center justify-center whitespace-nowrap font-medium rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none";
 
     const variants = {
-      default: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm",
+      default: "border border-slate-900 bg-slate-900 text-white hover:bg-slate-800 dark:border-slate-100 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white",
       secondary: "bg-slate-100 text-slate-900 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
-      outline: "border border-slate-300 dark:border-slate-700 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200",
+      outline: "border border-border bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-200",
       ghost: "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300",
       destructive: "bg-rose-600 text-white hover:bg-rose-700 shadow-sm",
       success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm",
     };
 
     const sizes = {
-      sm: "h-8 px-3 text-xs gap-1.5",
-      md: "h-9 px-4 text-sm gap-2",
-      lg: "h-11 px-6 text-base gap-2.5",
-      icon: "h-9 w-9 p-0",
+      sm: "h-9 px-3.5 text-xs gap-1.5",
+      md: "h-10 px-4 text-[13px] gap-2",
+      lg: "h-11 px-5 text-sm gap-2.5",
+      icon: "h-10 w-10 p-0",
     };
 
     return (
       <button
         ref={ref}
+        aria-busy={isLoading || undefined}
         disabled={disabled || isLoading}
         className={twMerge(clsx(baseStyles, variants[variant], sizes[size], className))}
         {...props}

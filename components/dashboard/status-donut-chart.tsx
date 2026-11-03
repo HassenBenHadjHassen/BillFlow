@@ -1,68 +1,10 @@
 "use client";
 
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
-
-interface StatusItem {
-  name: string;
-  count: number;
-  color: string;
-}
-
+interface StatusItem { name: string; count: number; color: string; }
+const colors: Record<string, string> = { Paid: "#85b49c", Sent: "#8aa7cb", "Partially Paid": "#d8bb83", Overdue: "#cf9090", Draft: "#c5ccd6" };
 export function StatusDonutChart({ data }: { data: StatusItem[] }) {
-  if (!data || data.length === 0) {
-    return (
-      <div className="h-64 flex items-center justify-center text-xs text-slate-400">
-        No active invoices
-      </div>
-    );
-  }
-
-  const total = data.reduce((s, d) => s + d.count, 0);
-
-  return (
-    <div className="h-64 w-full flex flex-col items-center justify-center">
-      <div className="h-44 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Tooltip
-              content={({ active, payload }) => {
-                if (active && payload && payload.length) {
-                  const item = payload[0].payload as StatusItem;
-                  return (
-                    <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2.5 shadow-md text-xs">
-                      <span className="font-semibold text-slate-900 dark:text-white">{item.name}: </span>
-                      <span>{item.count} ({((item.count / total) * 100).toFixed(0)}%)</span>
-                    </div>
-                  );
-                }
-                return null;
-              }}
-            />
-            <Pie
-              data={data}
-              innerRadius={50}
-              outerRadius={75}
-              paddingAngle={4}
-              dataKey="count"
-            >
-              {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Legend */}
-      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 mt-2 text-xs">
-        {data.map((item) => (
-          <div key={item.name} className="flex items-center gap-1.5">
-            <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-            <span className="text-slate-600 dark:text-slate-400">{item.name}</span>
-            <span className="font-semibold text-slate-900 dark:text-white">({item.count})</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const total = data?.reduce((sum, item) => sum + item.count, 0) || 0;
+  if (!total) return <div className="flex h-64 flex-col items-center justify-center text-sm text-slate-400"><span className="mb-4 h-28 w-28 rounded-full border-[16px] border-slate-100 dark:border-slate-800" />No invoices yet</div>;
+  return <div><div className="relative h-[185px] w-full"><div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"><span className="text-[30px] font-semibold tracking-tight text-slate-900 dark:text-white">{total}</span><span className="mt-0.5 text-[11px] text-slate-400">total invoices</span></div><ResponsiveContainer width="100%" height="100%"><PieChart><Tooltip content={({ active, payload }) => active && payload?.length ? <div className="rounded-lg border border-border bg-white px-3 py-2 text-xs shadow-md dark:bg-slate-900">{payload[0].name}: {payload[0].value}</div> : null} /><Pie data={data} innerRadius={62} outerRadius={80} paddingAngle={3} dataKey="count" nameKey="name" stroke="none" startAngle={90} endAngle={-270}>{data.map((item) => <Cell key={item.name} fill={colors[item.name] || item.color} />)}</Pie></PieChart></ResponsiveContainer></div><div className="mt-1 space-y-2.5">{data.map((item) => <div key={item.name} className="flex items-center gap-2.5 text-xs"><span className="h-2 w-2 rounded-full" style={{ background: colors[item.name] || item.color }} /><span className="flex-1 text-slate-500">{item.name}</span><span className="font-medium tabular-nums text-slate-800 dark:text-white">{item.count}</span><span className="w-9 text-right text-[11px] tabular-nums text-slate-400">{Math.round(item.count / total * 100)}%</span></div>)}</div></div>;
 }

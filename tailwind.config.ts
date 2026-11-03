@@ -9,7 +9,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: { sans: ["Inter", "Segoe UI", "-apple-system", "BlinkMacSystemFont", "Arial", "sans-serif"] },
       colors: {
+        indigo: { 50: "#f2f5f9", 100: "#e7edf5", 200: "#d0dce9", 300: "#afc0d6", 400: "#8a9fb9", 500: "#6d84a3", 600: "#526b8a", 700: "#3d536e", 800: "#304257", 900: "#263344", 950: "#151e2b" },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

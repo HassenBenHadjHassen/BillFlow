@@ -378,7 +378,7 @@ export class PdfService {
     fileUrl: string;
   }> {
     const pdfBytes = await this.generateInvoicePdf(data);
-    const fileName = `Invoice_${data.invoice.invoiceNumber}.pdf`;
+    const fileName = `${data.invoice.invoiceNumber}.pdf`;
     const folder = `invoices/${data.invoice.id}`;
 
     const storedFile = await StorageService.uploadFile(

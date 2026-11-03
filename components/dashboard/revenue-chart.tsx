@@ -27,17 +27,17 @@ export function RevenueChart({ data }: { data: MonthlyTrendItem[] }) {
   }
 
   return (
-    <div className="h-72 w-full pt-2">
+    <div className="h-[260px] w-full pt-2 sm:h-[290px]">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
           <defs>
             <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4} />
-              <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0} />
+              <stop offset="5%" stopColor="#4e74cc" stopOpacity={0.13} />
+              <stop offset="95%" stopColor="#4e74cc" stopOpacity={0.0} />
             </linearGradient>
             <linearGradient id="invoicedGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.3} />
-              <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
+              <stop offset="5%" stopColor="#aebdce" stopOpacity={0.04} />
+              <stop offset="95%" stopColor="#aebdce" stopOpacity={0.0} />
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" opacity={0.6} />
@@ -75,7 +75,7 @@ export function RevenueChart({ data }: { data: MonthlyTrendItem[] }) {
             type="monotone"
             dataKey="revenue"
             name="Collected"
-            stroke="#6366f1"
+            stroke="#4e74cc"
             strokeWidth={2.5}
             fillOpacity={1}
             fill="url(#revenueGrad)"
@@ -84,7 +84,7 @@ export function RevenueChart({ data }: { data: MonthlyTrendItem[] }) {
             type="monotone"
             dataKey="invoiced"
             name="Invoiced"
-            stroke="#38bdf8"
+            stroke="#aebdce"
             strokeWidth={1.5}
             strokeDasharray="4 4"
             fillOpacity={1}

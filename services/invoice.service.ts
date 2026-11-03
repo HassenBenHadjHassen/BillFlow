@@ -1,44 +1,16 @@
 import db from "@/lib/db";
 import { InvoiceInput, SaveInvoiceInput } from "@/schemas";
 import { calculateInvoiceTotals, calculateInvoicePaymentStatus, roundMoney } from "@/lib/financial";
+import { formatInvoiceNumber, INVOICE_TAX_RATE } from "@/lib/invoice";
 import { PdfService } from "./pdf.service";
 import { StorageService } from "./storage.service";
 
 export class InvoiceService {
-  /**
-   * Generates a sequential invoice number: e.g. INV-2026-001
-   * Runs server-side and transactionally
-   */
-  static async generateInvoiceNumber(prefix: string = "INV"): Promise<string> {
-    const year = new Date().getFullYear();
-    const pattern = `${prefix}-${year}-`;
-
-    const latest = await db.invoice.findFirst({
-      where: {
-        invoiceNumber: {
-          startsWith: pattern,
-        },
-      },
-      orderBy: {
-        invoiceNumber: "desc",
-      },
-      select: {
-        invoiceNumber: true,
-      },
-    });
-
-    let nextSeq = 1;
-    if (latest?.invoiceNumber) {
-      const parts = latest.invoiceNumber.split("-");
-      const lastSeqStr = parts[parts.length - 1];
-      const parsed = parseInt(lastSeqStr, 10);
-      if (!isNaN(parsed)) {
-        nextSeq = parsed + 1;
-      }
-    }
-
-    const seqFormatted = String(nextSeq).padStart(3, "0");
-    return `${pattern}${seqFormatted}`;
+  /** Generates an invoice name from today's date and the client's company. */
+  static async generateInvoiceNumber(clientId: string): Promise<string> {
+    const client = await db.client.findUnique({ where: { id: clientId }, select: { companyName: true } });
+    if (!client) throw new Error("Client not found");
+    return formatInvoiceNumber(client.companyName);
   }
 
   static async getInvoices(filters?: {
@@ -134,9 +106,9 @@ export class InvoiceService {
     const issueDate = new Date(data.issueDate);
     const dueDate = new Date(data.dueDate);
     const subtotal = roundMoney(data.subtotal);
-    const taxRate = Number(data.taxRate ?? 20);
-    const taxAmount = roundMoney(data.taxAmount ?? (subtotal * (taxRate / 100)));
-    const total = roundMoney(data.total ?? (subtotal + taxAmount));
+    const taxRate = INVOICE_TAX_RATE;
+    const taxAmount = 0;
+    const total = subtotal;
 
     return db.$transaction(async (tx) => {
       // 1. Check if invoice number is unique
@@ -154,7 +126,7 @@ export class InvoiceService {
       let fileName = "";
 
       if (file && file.buffer && file.buffer.length > 0) {
-        fileName = file.fileName || `Invoice_${data.invoiceNumber}.pdf`;
+        fileName = file.fileName || `${data.invoiceNumber}.pdf`;
         const uploaded = await StorageService.uploadFile(
           file.buffer,
           fileName,
@@ -286,7 +258,7 @@ export class InvoiceService {
     });
     if (!invoice) throw new Error("Invoice not found");
 
-    const fileName = file.fileName || `Invoice_${invoice.invoiceNumber}.pdf`;
+    const fileName = file.fileName || `${invoice.invoiceNumber}.pdf`;
     const uploaded = await StorageService.uploadFile(
       file.buffer,
       fileName,
@@ -449,15 +421,17 @@ export class InvoiceService {
 
   static async createInvoice(data: InvoiceInput, options?: { autoSend?: boolean }) {
     // 1. Authoritative server-side calculation
-    const totals = calculateInvoiceTotals(data.items);
+    const items = data.items.map((item) => ({ ...item, taxRate: INVOICE_TAX_RATE }));
+    const totals = calculateInvoiceTotals(items);
+    const invoiceNumber = await this.generateInvoiceNumber(data.clientId);
     const issueDate = new Date(data.issueDate);
     const dueDate = new Date(data.dueDate);
 
     // 2. Fetch company settings for prefix and invoice details
     const settings = await db.companySettings.findFirst() || {
       companyName: "My Business",
-      invoicePrefix: "INV",
-      defaultTaxRate: 20,
+      invoicePrefix: "F",
+      defaultTaxRate: INVOICE_TAX_RATE,
       invoiceNotes: null,
       address: null,
       city: null,
@@ -472,8 +446,7 @@ export class InvoiceService {
     };
 
     return db.$transaction(async (tx) => {
-      // 3. Sequential numbering
-      const invoiceNumber = await this.generateInvoiceNumber(settings.invoicePrefix);
+      // The name is shared with the invoice-entry forms.
 
       // 4. Create invoice record
       const invoice = await tx.invoice.create({
@@ -485,7 +458,7 @@ export class InvoiceService {
           dueDate,
           currency: data.currency || "EUR",
           subtotal: totals.subtotal,
-          taxRate: data.items[0]?.taxRate || settings.defaultTaxRate,
+          taxRate: INVOICE_TAX_RATE,
           taxAmount: totals.taxAmount,
           total: totals.total,
           status: options?.autoSend ? "Sent" : "Draft",
@@ -493,7 +466,7 @@ export class InvoiceService {
           billingPeriodStart: data.billingPeriodStart ? new Date(data.billingPeriodStart) : null,
           billingPeriodEnd: data.billingPeriodEnd ? new Date(data.billingPeriodEnd) : null,
           items: {
-            create: data.items.map((item) => ({
+            create: items.map((item) => ({
               description: item.description,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
@@ -543,7 +516,7 @@ export class InvoiceService {
         // Create document record
         await tx.document.create({
           data: {
-            name: `Invoice_${invoice.invoiceNumber}.pdf`,
+            name: `${invoice.invoiceNumber}.pdf`,
             type: "Invoice",
             fileUrl: pdfResult.fileUrl,
             storagePath: pdfResult.storagePath,
@@ -592,7 +565,7 @@ export class InvoiceService {
 
     const settings = await db.companySettings.findFirst() || {
       companyName: "My Business",
-      defaultTaxRate: 20,
+      defaultTaxRate: INVOICE_TAX_RATE,
       invoiceNotes: null,
       address: null,
       city: null,
