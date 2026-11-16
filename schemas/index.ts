@@ -161,7 +161,7 @@ export const CompanySettingsSchema = z.object({
   city: z.string().optional().nullable(),
   postalCode: z.string().optional().nullable(),
   country: z.string().default("France"),
-  email: z.string().email("Valid email is required").optional().or(z.literal("")),
+  email: z.string().email("Valid email is required").or(z.literal("")).nullable().optional(),
   phone: z.string().optional().nullable(),
   website: z.string().optional().nullable(),
   siret: z.string().optional().nullable(),
@@ -171,6 +171,10 @@ export const CompanySettingsSchema = z.object({
   bic: z.string().optional().nullable(),
   defaultCurrency: z.string().default("EUR"),
   defaultTaxRate: z.coerce.number().min(0).default(20),
+  estimatedTaxRate: z.number().finite()
+    .min(0, "Estimated tax rate must be at least 0%")
+    .max(100, "Estimated tax rate must be at most 100%")
+    .nullable().optional(),
   defaultPaymentTerms: z.coerce.number().int().min(0).default(30),
   invoicePrefix: z.string().min(1).default("INV"),
   invoiceNotes: z.string().optional().nullable(),

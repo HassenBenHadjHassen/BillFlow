@@ -8,7 +8,7 @@ import {
   format,
   differenceInCalendarDays,
 } from "date-fns";
-import { roundMoney, calculateInvoicePaymentStatus } from "@/lib/financial";
+import { roundMoney, calculateInvoicePaymentStatus, DEFAULT_ESTIMATED_TAX_RATE } from "@/lib/financial";
 import { UpcomingEvent } from "@/types";
 
 export class DashboardService {
@@ -20,28 +20,37 @@ export class DashboardService {
     const yearEnd = endOfYear(now);
 
     // 1. Fetch payments for Revenue This Month and This Year
-    const paymentsThisMonth = await db.payment.findMany({
-      where: {
-        paymentDate: {
-          gte: monthStart,
-          lte: monthEnd,
-        },
-      },
-      select: { amount: true },
-    });
-
-    const paymentsThisYear = await db.payment.findMany({
-      where: {
-        paymentDate: {
-          gte: yearStart,
-          lte: yearEnd,
-        },
-      },
-      select: { amount: true },
-    });
+    const [paymentsThisMonth, paymentsThisYear, taxSettings] = await Promise.all([
+      db.payment.findMany({
+        where: { paymentDate: { gte: monthStart, lte: monthEnd } },
+        select: { amount: true, invoice: { select: { currency: true } } },
+      }),
+      db.payment.findMany({
+        where: { paymentDate: { gte: yearStart, lte: yearEnd } },
+        select: { amount: true },
+      }),
+      db.companySettings.findFirst({ select: { estimatedTaxRate: true, defaultCurrency: true } }),
+    ]);
 
     const revenueThisMonth = roundMoney(paymentsThisMonth.reduce((sum, p) => sum + p.amount, 0));
     const revenueThisYear = roundMoney(paymentsThisYear.reduce((sum, p) => sum + p.amount, 0));
+
+    let estimatedTax: { rate: number; amounts: { currency: string; amount: number }[] } | null = null;
+    const rate = taxSettings ? taxSettings.estimatedTaxRate : DEFAULT_ESTIMATED_TAX_RATE;
+    if (rate !== null) {
+      const collectedByCurrency = new Map<string, number>();
+      for (const { amount, invoice } of paymentsThisMonth) {
+        const currency = invoice.currency.toUpperCase();
+        collectedByCurrency.set(currency, (collectedByCurrency.get(currency) ?? 0) + amount);
+      }
+      if (!collectedByCurrency.size) collectedByCurrency.set(taxSettings?.defaultCurrency ?? "EUR", 0);
+      estimatedTax = {
+        rate,
+        amounts: Array.from(collectedByCurrency)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([currency, collected]) => ({ currency, amount: roundMoney(roundMoney(collected) * (rate / 100)) })),
+      };
+    }
 
     // 2. Fetch all active invoices to compute Outstanding and Overdue
     const allInvoices = await db.invoice.findMany({
@@ -254,6 +263,7 @@ export class DashboardService {
       metrics: {
         revenueThisMonth,
         revenueThisYear,
+        estimatedTax,
         outstandingRevenue,
         overdueRevenue,
         overdueCount,

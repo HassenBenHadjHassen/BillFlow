@@ -154,6 +154,7 @@ export interface CompanySettingsDTO {
   bic: string | null;
   defaultCurrency: string;
   defaultTaxRate: number;
+  estimatedTaxRate: number | null;
   defaultPaymentTerms: number;
   invoicePrefix: string;
   invoiceNotes: string | null;

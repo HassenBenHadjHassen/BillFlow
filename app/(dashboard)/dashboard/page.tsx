@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { format } from "date-fns";
 import { DashboardService } from "@/services/dashboard.service";
 import { formatCurrency } from "@/lib/financial";
@@ -7,11 +8,11 @@ import { Button } from "@/components/ui/button";
 import { RevenueChart } from "@/components/dashboard/revenue-chart";
 import { StatusDonutChart } from "@/components/dashboard/status-donut-chart";
 import { UpcomingEventsList } from "@/components/dashboard/upcoming-events-list";
-import { ArrowDownLeft, ArrowUpRight, CalendarDays, Clock3, Plus, Repeat2, type LucideIcon } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, Clock3, Percent, Plus, Repeat2, type LucideIcon } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-function MetricCard({ label, value, note, icon: Icon, emphasis = false }: { label: string; value: string; note: string; icon: LucideIcon; emphasis?: boolean }) {
+function MetricCard({ label, value, note, icon: Icon, emphasis = false }: { label: string; value: ReactNode; note: ReactNode; icon: LucideIcon; emphasis?: boolean }) {
   return <Card className={emphasis ? "border-slate-900 bg-slate-900 text-white dark:border-slate-700 dark:bg-slate-800" : ""}>
     <div className="p-5 sm:p-6"><div className="flex items-center justify-between gap-2"><p className={emphasis ? "text-xs text-slate-300" : "text-xs text-slate-500"}>{label}</p><Icon className={emphasis ? "h-4 w-4 text-slate-400" : "h-4 w-4 text-slate-400"} strokeWidth={1.6} /></div><p className="mt-5 whitespace-nowrap text-[27px] font-semibold leading-none tracking-[-0.045em] tabular-nums">{value}</p><p className={emphasis ? "mt-3 text-[11px] text-slate-400" : "mt-3 text-[11px] text-slate-400"}>{note}</p></div>
   </Card>;
@@ -19,14 +20,21 @@ function MetricCard({ label, value, note, icon: Icon, emphasis = false }: { labe
 
 export default async function DashboardPage() {
   const { metrics, monthlyTrend, statusBreakdown, revenueByClient, upcomingEvents } = await DashboardService.getDashboardData();
+  const { estimatedTax } = metrics;
   return (
     <div className="bf-page">
       <div className="bf-page-header">
         <div><p className="bf-eyebrow">Your workspace</p><h1 className="bf-title">Overview</h1><p className="bf-subtitle">A clear view of your income and what’s next.</p></div>
         <div className="flex flex-wrap items-center gap-3"><span className="mr-1 hidden items-center gap-2 text-xs text-slate-400 xl:flex"><CalendarDays className="h-3.5 w-3.5" />{format(new Date(), "dd MMM yyyy")}</span><Link href="/invoices/new"><Button><Plus className="h-4 w-4" /> New invoice</Button></Link></div>
       </div>
-      <section aria-label="Financial overview" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Financial overview" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
         <MetricCard label="Collected this month" value={formatCurrency(metrics.revenueThisMonth)} note="Payments received this calendar month" icon={ArrowDownLeft} emphasis />
+        <MetricCard
+          label="Estimated Tax"
+          value={estimatedTax?.amounts.map(({ currency, amount }) => <span key={currency} className="block">{formatCurrency(amount, currency)}</span>) ?? "—"}
+          note={estimatedTax ? estimatedTax.rate + "% of payments received this month" : <Link href="/settings" className="bf-link">Set your tax rate in Settings</Link>}
+          icon={Percent}
+        />
         <MetricCard label="Outstanding" value={formatCurrency(metrics.outstandingRevenue)} note="Balance remaining across your invoices" icon={Clock3} />
         <MetricCard label="Overdue" value={formatCurrency(metrics.overdueRevenue)} note={`${metrics.overdueCount} invoice${metrics.overdueCount === 1 ? " needs" : "s need"} your attention`} icon={ArrowUpRight} />
         <MetricCard label="Monthly recurring" value={formatCurrency(metrics.monthlyContractedRevenue)} note="Monthly value of active contracts" icon={Repeat2} />

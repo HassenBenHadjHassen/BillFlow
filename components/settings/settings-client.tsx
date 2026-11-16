@@ -42,6 +42,7 @@ export function SettingsClient({
   const [bic, setBic] = React.useState(settings.bic || "");
   const [defaultCurrency, setDefaultCurrency] = React.useState(settings.defaultCurrency || "EUR");
   const [defaultTaxRate, setDefaultTaxRate] = React.useState(settings.defaultTaxRate);
+  const [estimatedTaxRate, setEstimatedTaxRate] = React.useState(settings.estimatedTaxRate?.toString() ?? "");
   const [defaultPaymentTerms, setDefaultPaymentTerms] = React.useState(settings.defaultPaymentTerms);
   const [invoicePrefix, setInvoicePrefix] = React.useState(settings.invoicePrefix || "INV");
   const [invoiceNotes, setInvoiceNotes] = React.useState(settings.invoiceNotes || "");
@@ -96,13 +97,14 @@ export function SettingsClient({
         bic: bic || null,
         defaultCurrency,
         defaultTaxRate: Number(defaultTaxRate),
+        estimatedTaxRate: estimatedTaxRate === "" ? null : Number(estimatedTaxRate),
         defaultPaymentTerms: Number(defaultPaymentTerms),
         invoicePrefix,
         invoiceNotes: invoiceNotes || null,
       });
 
       if (res.success) {
-        toast({ title: "Company Settings Saved", description: "Invoices will reflect the new settings.", type: "success" });
+        toast({ title: "Company Settings Saved", type: "success" });
         router.refresh();
       } else {
         toast({ title: "Error", description: res.error, type: "error" });
@@ -320,6 +322,32 @@ export function SettingsClient({
                       className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-900 dark:text-slate-100 outline-none focus:border-indigo-500"
                     />
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Estimated Tax</CardTitle>
+                <CardDescription id="estimated-tax-help">
+                  The dashboard applies this rate to payments received this month. Leave it blank to clear the estimate.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="max-w-xs space-y-1">
+                  <label htmlFor="estimated-tax-rate" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Estimated tax rate (%)
+                  </label>
+                  <Input
+                    id="estimated-tax-rate"
+                    aria-describedby="estimated-tax-help"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="any"
+                    value={estimatedTaxRate}
+                    onChange={(event) => setEstimatedTaxRate(event.target.value)}
+                  />
                 </div>
               </CardContent>
             </Card>

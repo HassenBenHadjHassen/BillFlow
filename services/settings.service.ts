@@ -48,6 +48,7 @@ export class SettingsService {
         bic: data.bic || null,
         defaultCurrency: data.defaultCurrency || "EUR",
         defaultTaxRate: data.defaultTaxRate,
+        estimatedTaxRate: data.estimatedTaxRate,
         defaultPaymentTerms: data.defaultPaymentTerms,
         invoicePrefix: data.invoicePrefix || "INV",
         invoiceNotes: data.invoiceNotes || null,

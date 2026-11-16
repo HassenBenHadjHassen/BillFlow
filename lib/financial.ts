@@ -2,6 +2,8 @@
  * Financial calculation utilities to prevent floating-point inaccuracies
  */
 
+export const DEFAULT_ESTIMATED_TAX_RATE = 13;
+
 /**
  * Rounds a number to 2 decimal places using standard banker's/commercial rounding
  */

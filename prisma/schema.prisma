@@ -263,6 +263,7 @@ model CompanySettings {
   bic                 String?
   defaultCurrency     String   @default("EUR")
   defaultTaxRate      Float    @default(20)
+  estimatedTaxRate    Float?   @default(13)
   defaultPaymentTerms Int      @default(30)
   invoicePrefix       String   @default("INV")
   invoiceNotes        String?  @default("Thank you for your business. Payment is due within 30 days.")
