@@ -33,7 +33,7 @@ export class SettingsService {
       where: { id: existing.id },
       data: {
         companyName: data.companyName,
-        logo: data.logo || null,
+        logo: data.logo,
         address: data.address || null,
         city: data.city || null,
         postalCode: data.postalCode || null,

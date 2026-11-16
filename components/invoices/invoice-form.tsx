@@ -220,7 +220,7 @@ export function InvoiceForm({
           <div>
             <h1 className="bf-title">
 
-              New invoice
+              Record existing invoice
             </h1>
             <p className="bf-subtitle">
               Add the details and attach your invoice when you’re ready.

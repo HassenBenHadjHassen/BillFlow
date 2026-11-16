@@ -1,6 +1,7 @@
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
-import { format } from "date-fns";
-import { formatPdfCurrency } from "@/lib/financial";
+import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from "pdf-lib";
+import { randomUUID } from "node:crypto";
+import { formatCurrency } from "@/lib/financial";
+import { formatInvoiceDate, getInvoiceLogo, getInvoiceVatNotice, invoicePartyDetails, type InvoiceParty } from "@/lib/invoice";
 import { StorageService } from "./storage.service";
 
 export interface InvoicePdfData {
@@ -16,23 +17,13 @@ export interface InvoicePdfData {
     total: number;
     status: string;
     notes?: string | null;
+    billingPeriodStart?: Date | null;
+    billingPeriodEnd?: Date | null;
+    showUnitPrice?: boolean;
+    vatNotice?: string | null;
   };
-  client: {
-    companyName: string;
-    contactName?: string | null;
-    email: string;
-    phone?: string | null;
-    address?: string | null;
-    city?: string | null;
-    postalCode?: string | null;
-    country?: string | null;
-    vatNumber?: string | null;
-    siret?: string | null;
-  };
-  contract?: {
-    title: string;
-    contractNumber: string;
-  } | null;
+  client: InvoiceParty;
+  contract?: { title: string; contractNumber: string } | null;
   items: Array<{
     description: string;
     quantity: number;
@@ -40,357 +31,235 @@ export interface InvoicePdfData {
     taxRate: number;
     total: number;
   }>;
-  company: {
-    companyName: string;
-    address?: string | null;
-    city?: string | null;
-    postalCode?: string | null;
-    country?: string | null;
-    email?: string | null;
-    phone?: string | null;
-    siret?: string | null;
-    vatNumber?: string | null;
+  company: InvoiceParty & {
+    logo?: string | null;
     iban?: string | null;
     bic?: string | null;
     invoiceNotes?: string | null;
   };
 }
 
-function cleanPdfText(text: string | null | undefined): string {
-  if (!text) return "";
-  return text
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/[\u202F\u00A0]/g, " ")
-    .replace(/[^\x00-\xFF]/g, " ")
-    .trim();
+const ink = rgb(0.11, 0.15, 0.22);
+const muted = rgb(0.32, 0.38, 0.46);
+const rule = rgb(0.88, 0.9, 0.93);
+const surface = rgb(0.96, 0.97, 0.98);
+const pageSize: [number, number] = [595.28, 841.89];
+const margin = 42;
+const right = pageSize[0] - margin;
+const contentWidth = right - margin;
+const bottom = 58;
+
+function printable(value: string, supported: Set<number>): string {
+  return Array.from(value.normalize("NFC").replace(/[^\S\n]+/g, " "), (char) => {
+    if (char === "\n" || supported.has(char.codePointAt(0)!)) return char;
+    const base = char.normalize("NFD").replace(/\p{M}/gu, "");
+    return Array.from(base).every((part) => supported.has(part.codePointAt(0)!)) ? base : "?";
+  }).join("");
+}
+
+function wrap(text: string, font: PDFFont, size: number, width: number): string[] {
+  return text.split("\n").flatMap((paragraph) => {
+    const lines: string[] = [];
+    let line = "";
+    for (const word of paragraph.trim().split(/\s+/)) {
+      const next = line ? line + " " + word : word;
+      if (font.widthOfTextAtSize(next, size) <= width) {
+        line = next;
+        continue;
+      }
+      if (line) lines.push(line);
+      line = "";
+      for (const char of word) {
+        if (font.widthOfTextAtSize(line + char, size) > width) {
+          lines.push(line);
+          line = "";
+        }
+        line += char;
+      }
+    }
+    return [...lines, line];
+  });
 }
 
 export class PdfService {
-  /**
-   * Generates a professional PDF invoice using vector graphics and typography
-   */
   static async generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Array> {
+    const { invoice, company, client, contract } = data;
     const doc = await PDFDocument.create();
-    const page = doc.addPage([595.28, 841.89]); // A4 in points
-    const { width, height } = page.getSize();
+    doc.setTitle("Facture " + invoice.invoiceNumber);
+    const regular = await doc.embedFont(StandardFonts.Helvetica);
+    const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const supported = new Set(regular.getCharacterSet());
+    const clean = (value: string) => printable(value, supported);
+    const money = (amount: number) => formatCurrency(amount, invoice.currency);
 
-    const fontRegular = await doc.embedFont(StandardFonts.Helvetica);
-    const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+    let page: PDFPage = doc.addPage(pageSize);
+    let y = pageSize[1] - margin;
+    function draw(value: string, x: number, baseline: number, size = 10, font = regular, color = ink) {
+      page.drawText(clean(value), { x, y: baseline, size, font, color });
+    }
+    function drawRight(value: string, x: number, baseline: number, size = 10, font = regular, maxWidth = contentWidth) {
+      const textWidth = font.widthOfTextAtSize(clean(value), size);
+      const scale = textWidth > maxWidth ? maxWidth / textWidth : 1;
+      draw(value, x - textWidth * scale, baseline, size * scale, font);
+    }
+    function line(baseline: number) {
+      page.drawLine({ start: { x: margin, y: baseline }, end: { x: right, y: baseline }, thickness: 0.75, color: rule });
+    }
+    function nextPage() {
+      page = doc.addPage(pageSize);
+      y = pageSize[1] - margin;
+      drawRight("Facture " + invoice.invoiceNumber, right, y, 10, bold);
+      y -= 22;
+    }
+    function ensureSpace(height: number) {
+      if (y - height < bottom) nextPage();
+    }
+    function paragraph(text: string, size = 10, font = regular, color = muted) {
+      for (const part of wrap(clean(text), font, size, contentWidth)) {
+        ensureSpace(14);
+        draw(part, margin, y, size, font, color);
+        y -= 14;
+      }
+    }
 
-    // Color palette
-    const primaryColor = rgb(0.12, 0.23, 0.44); // Deep Navy #1e3a8a
-    const secondaryColor = rgb(0.4, 0.45, 0.55); // Slate
-    const darkColor = rgb(0.09, 0.11, 0.15); // Almost black
-    const lightBg = rgb(0.96, 0.97, 0.99); // Off-white table header
-    const borderColor = rgb(0.88, 0.9, 0.94);
+    draw("FACTURE", margin, y - 13, 26, bold);
+    const logo = getInvoiceLogo(company.logo);
+    if (logo) {
+      try {
+        const image = logo.startsWith("data:image/png") ? await doc.embedPng(logo) : await doc.embedJpg(logo);
+        const dimensions = image.scaleToFit(115, 44);
+        page.drawImage(image, { ...dimensions, x: right - dimensions.width, y: y - dimensions.height });
+      } catch {
+        // A previously saved invalid logo should not prevent invoice generation.
+      }
+    }
+    draw("N° " + invoice.invoiceNumber, margin, y - 33, 10, regular, muted);
+    y -= 55;
+    line(y);
+    y -= 23;
 
-    let y = height - 50;
-
-    // Header: Company Name & Invoice Title
-    page.drawText(cleanPdfText(data.company.companyName.toUpperCase()), {
-      x: 50,
-      y,
-      size: 20,
-      font: fontBold,
-      color: primaryColor,
-    });
-
-    const invoiceTitle = "INVOICE";
-    const titleWidth = fontBold.widthOfTextAtSize(invoiceTitle, 22);
-    page.drawText(invoiceTitle, {
-      x: width - 50 - titleWidth,
-      y,
-      size: 22,
-      font: fontBold,
-      color: primaryColor,
-    });
+    const colWidth = (contentWidth - 26) / 2;
+    const parties = [company, client].map((party, index) => ({
+      heading: index === 0 ? "ÉMETTEUR" : "CLIENT",
+      name: wrap(clean(party.companyName), bold, 12, colWidth),
+      details: invoicePartyDetails(party).flatMap((part) => wrap(clean(part), regular, 9, colWidth)),
+    }));
+    for (const [index, party] of parties.entries()) {
+      const x = margin + index * (colWidth + 26);
+      draw(party.heading, x, y, 8, bold, muted);
+      party.name.forEach((part, row) => draw(part, x, y - 19 - 15 * row, 12, bold));
+    }
+    y -= 19 + 15 * Math.max(...parties.map((party) => party.name.length));
+    const detailsHeight = Math.max(...parties.map((party) => party.details.length));
+    for (let row = 0; row < detailsHeight; row++) {
+      ensureSpace(13);
+      for (const [index, party] of parties.entries()) {
+        if (party.details[row]) draw(party.details[row], margin + index * (colWidth + 26), y, 9, regular, muted);
+      }
+      y -= 13;
+    }
 
     y -= 14;
-    const invNumberText = cleanPdfText(`# ${data.invoice.invoiceNumber}`);
-    const invNumberWidth = fontBold.widthOfTextAtSize(invNumberText, 12);
-    page.drawText(invNumberText, {
-      x: width - 50 - invNumberWidth,
-      y,
-      size: 12,
-      font: fontBold,
-      color: secondaryColor,
-    });
-
-    // Top decorative bar
-    y -= 18;
-    page.drawLine({
-      start: { x: 50, y },
-      end: { x: width - 50, y },
-      thickness: 1.5,
-      color: borderColor,
-    });
-
-    // Info Blocks: Seller (Company) on Left, Buyer (Client) on Right
-    y -= 25;
-    const col1X = 50;
-    const col2X = 320;
-    let sellerY = y;
-    let buyerY = y;
-
-    // Seller Info
-    page.drawText("ISSUED BY", {
-      x: col1X,
-      y: sellerY,
-      size: 8,
-      font: fontBold,
-      color: secondaryColor,
-    });
-    sellerY -= 14;
-
-    page.drawText(cleanPdfText(data.company.companyName), {
-      x: col1X,
-      y: sellerY,
-      size: 10,
-      font: fontBold,
-      color: darkColor,
-    });
-    sellerY -= 13;
-
-    if (data.company.address) {
-      page.drawText(cleanPdfText(data.company.address), { x: col1X, y: sellerY, size: 9, font: fontRegular, color: secondaryColor });
-      sellerY -= 12;
-    }
-    const cityZip = [data.company.postalCode, data.company.city, data.company.country].filter(Boolean).join(" ");
-    if (cityZip) {
-      page.drawText(cleanPdfText(cityZip), { x: col1X, y: sellerY, size: 9, font: fontRegular, color: secondaryColor });
-      sellerY -= 12;
-    }
-    if (data.company.email) {
-      page.drawText(cleanPdfText(`Email: ${data.company.email}`), { x: col1X, y: sellerY, size: 9, font: fontRegular, color: secondaryColor });
-      sellerY -= 12;
-    }
-    if (data.company.phone) {
-      page.drawText(cleanPdfText(`Phone: ${data.company.phone}`), { x: col1X, y: sellerY, size: 9, font: fontRegular, color: secondaryColor });
-      sellerY -= 12;
-    }
-    if (data.company.siret) {
-      page.drawText(cleanPdfText(`SIRET: ${data.company.siret}`), { x: col1X, y: sellerY, size: 8, font: fontRegular, color: secondaryColor });
-      sellerY -= 11;
-    }
-    if (data.company.vatNumber) {
-      page.drawText(cleanPdfText(`VAT: ${data.company.vatNumber}`), { x: col1X, y: sellerY, size: 8, font: fontRegular, color: secondaryColor });
-      sellerY -= 11;
+    ensureSpace(32);
+    draw("Émission · " + formatInvoiceDate(invoice.issueDate), margin, y, 10, bold);
+    draw("Échéance · " + formatInvoiceDate(invoice.dueDate), margin + colWidth + 26, y, 10, bold);
+    y -= 20;
+    if (contract) paragraph("Contrat · " + contract.contractNumber + " · " + contract.title, 9);
+    if (invoice.billingPeriodStart || invoice.billingPeriodEnd) {
+      const start = invoice.billingPeriodStart ? formatInvoiceDate(invoice.billingPeriodStart) : "—";
+      const end = invoice.billingPeriodEnd ? formatInvoiceDate(invoice.billingPeriodEnd) : "—";
+      paragraph("Période · " + start + " – " + end, 9);
     }
 
-    // Buyer Info
-    page.drawText("BILLED TO", {
-      x: col2X,
-      y: buyerY,
-      size: 8,
-      font: fontBold,
-      color: secondaryColor,
-    });
-    buyerY -= 14;
+    const showUnitPrice = invoice.showUnitPrice !== false;
+    const quantityX = showUnitPrice ? margin + 315 : right - 12;
+    const priceX = right - 108;
+    const totalX = right - 12;
+    const descriptionWidth = quantityX - margin - 64;
+    const items = data.items.length ? data.items : [
+      { description: "Prestations", quantity: 1, unitPrice: invoice.subtotal, total: invoice.subtotal },
+    ];
 
-    page.drawText(cleanPdfText(data.client.companyName), {
-      x: col2X,
-      y: buyerY,
-      size: 10,
-      font: fontBold,
-      color: darkColor,
-    });
-    buyerY -= 13;
-
-    if (data.client.contactName) {
-      page.drawText(cleanPdfText(`Attn: ${data.client.contactName}`), { x: col2X, y: buyerY, size: 9, font: fontRegular, color: secondaryColor });
-      buyerY -= 12;
-    }
-    if (data.client.address) {
-      page.drawText(cleanPdfText(data.client.address), { x: col2X, y: buyerY, size: 9, font: fontRegular, color: secondaryColor });
-      buyerY -= 12;
-    }
-    const clientCityZip = [data.client.postalCode, data.client.city, data.client.country].filter(Boolean).join(" ");
-    if (clientCityZip) {
-      page.drawText(cleanPdfText(clientCityZip), { x: col2X, y: buyerY, size: 9, font: fontRegular, color: secondaryColor });
-      buyerY -= 12;
-    }
-    if (data.client.email) {
-      page.drawText(cleanPdfText(`Email: ${data.client.email}`), { x: col2X, y: buyerY, size: 9, font: fontRegular, color: secondaryColor });
-      buyerY -= 12;
-    }
-    if (data.client.vatNumber) {
-      page.drawText(cleanPdfText(`VAT: ${data.client.vatNumber}`), { x: col2X, y: buyerY, size: 8, font: fontRegular, color: secondaryColor });
-      buyerY -= 11;
-    }
-
-    // Invoice Meta (Dates & Contract)
-    y = Math.min(sellerY, buyerY) - 15;
-
-    // Meta box
-    page.drawRectangle({
-      x: 50,
-      y: y - 26,
-      width: width - 100,
-      height: 36,
-      color: lightBg,
-      borderColor,
-      borderWidth: 1,
-    });
-
-    const metaY = y - 10;
-    page.drawText("ISSUE DATE", { x: 65, y: metaY + 6, size: 7, font: fontBold, color: secondaryColor });
-    page.drawText(format(new Date(data.invoice.issueDate), "dd/MM/yyyy"), { x: 65, y: metaY - 6, size: 9, font: fontBold, color: darkColor });
-
-    page.drawText("DUE DATE", { x: 180, y: metaY + 6, size: 7, font: fontBold, color: secondaryColor });
-    page.drawText(format(new Date(data.invoice.dueDate), "dd/MM/yyyy"), { x: 180, y: metaY - 6, size: 9, font: fontBold, color: darkColor });
-
-    page.drawText("STATUS", { x: 300, y: metaY + 6, size: 7, font: fontBold, color: secondaryColor });
-    page.drawText(cleanPdfText(data.invoice.status.toUpperCase()), { x: 300, y: metaY - 6, size: 9, font: fontBold, color: primaryColor });
-
-    if (data.contract) {
-      page.drawText("CONTRACT REF", { x: 420, y: metaY + 6, size: 7, font: fontBold, color: secondaryColor });
-      page.drawText(cleanPdfText(data.contract.contractNumber), { x: 420, y: metaY - 6, size: 9, font: fontBold, color: darkColor });
-    }
-
-    y -= 50;
-
-    // Items Table Header
-    page.drawRectangle({
-      x: 50,
-      y: y - 18,
-      width: width - 100,
-      height: 22,
-      color: primaryColor,
-    });
-
-    page.drawText("DESCRIPTION", { x: 60, y: y - 12, size: 8, font: fontBold, color: rgb(1, 1, 1) });
-    page.drawText("QTY", { x: 320, y: y - 12, size: 8, font: fontBold, color: rgb(1, 1, 1) });
-    page.drawText("UNIT PRICE", { x: 380, y: y - 12, size: 8, font: fontBold, color: rgb(1, 1, 1) });
-    page.drawText("TAX", { x: 450, y: y - 12, size: 8, font: fontBold, color: rgb(1, 1, 1) });
-    page.drawText("TOTAL", { x: 495, y: y - 12, size: 8, font: fontBold, color: rgb(1, 1, 1) });
-
-    y -= 26;
-
-    // Items Rows
-    for (let i = 0; i < data.items.length; i++) {
-      const item = data.items[i];
-      const isEven = i % 2 === 0;
-
-      if (isEven) {
-        page.drawRectangle({
-          x: 50,
-          y: y - 14,
-          width: width - 100,
-          height: 20,
-          color: lightBg,
-        });
+    function tableHeader() {
+      page.drawRectangle({ x: margin, y: y - 25, width: contentWidth, height: 25, color: surface });
+      draw("DESCRIPTION", margin + 10, y - 16, 8, bold, muted);
+      drawRight("QTÉ", quantityX, y - 16, 8, bold);
+      if (showUnitPrice) {
+        drawRight("PRIX UNIT. HT", priceX, y - 16, 8, bold);
+        drawRight("TOTAL HT", totalX, y - 16, 8, bold);
       }
-
-      // Truncate description if too long
-      const cleanedDesc = cleanPdfText(item.description);
-      const desc = cleanedDesc.length > 45 ? `${cleanedDesc.substring(0, 42)}...` : cleanedDesc;
-
-      page.drawText(desc, { x: 60, y: y - 8, size: 8.5, font: fontRegular, color: darkColor });
-      page.drawText(String(item.quantity), { x: 325, y: y - 8, size: 8.5, font: fontRegular, color: darkColor });
-      page.drawText(formatPdfCurrency(item.unitPrice, data.invoice.currency), { x: 380, y: y - 8, size: 8.5, font: fontRegular, color: darkColor });
-      page.drawText(`${item.taxRate}%`, { x: 452, y: y - 8, size: 8.5, font: fontRegular, color: darkColor });
-      page.drawText(formatPdfCurrency(item.total, data.invoice.currency), { x: 495, y: y - 8, size: 8.5, font: fontBold, color: darkColor });
-
-      y -= 20;
+      y -= 37;
+    }
+    y -= 6;
+    ensureSpace(62);
+    tableHeader();
+    for (const item of items) {
+      const description = wrap(clean(item.description), regular, 10, descriptionWidth);
+      for (const [index, part] of description.entries()) {
+        if (y - 16 < bottom) {
+          nextPage();
+          tableHeader();
+        }
+        draw(part, margin + 10, y);
+        if (index === 0) {
+          drawRight(String(item.quantity), quantityX, y, 10, regular, 55);
+          if (showUnitPrice) {
+            drawRight(money(item.unitPrice), priceX, y, 10, regular, 78);
+            drawRight(money(item.total), totalX, y, 10, bold, 90);
+          }
+        }
+        y -= 14;
+      }
+      line(y + 5);
+      y -= 10;
     }
 
-    // Totals Section
-    y -= 15;
-    const totalsX = 350;
-    const totalsValX = 480;
+    ensureSpace(92);
+    y -= 10;
+    const totalLabelX = right - 225;
+    draw("Total HT", totalLabelX, y, 10, regular, muted);
+    drawRight(money(invoice.subtotal), totalX, y, 10, regular, 100);
+    y -= 18;
+    draw("TVA (" + invoice.taxRate + " %)", totalLabelX, y, 10, regular, muted);
+    drawRight(money(invoice.taxAmount), totalX, y, 10, regular, 100);
+    y -= 26;
+    page.drawRectangle({ x: totalLabelX - 10, y: y - 9, width: right - totalLabelX + 10, height: 29, color: surface });
+    draw("NET À PAYER", totalLabelX, y, 10, bold);
+    drawRight(money(invoice.total), totalX, y, 13, bold, 110);
+    y -= 30;
 
-    page.drawText("Subtotal HT:", { x: totalsX, y, size: 9, font: fontRegular, color: secondaryColor });
-    const subtotalStr = formatPdfCurrency(data.invoice.subtotal, data.invoice.currency);
-    page.drawText(subtotalStr, { x: totalsValX, y, size: 9, font: fontRegular, color: darkColor });
-
-    y -= 16;
-    page.drawText(`Tax (${data.invoice.taxRate}%):`, { x: totalsX, y, size: 9, font: fontRegular, color: secondaryColor });
-    const taxStr = formatPdfCurrency(data.invoice.taxAmount, data.invoice.currency);
-    page.drawText(taxStr, { x: totalsValX, y, size: 9, font: fontRegular, color: darkColor });
-
-    y -= 22;
-    page.drawRectangle({
-      x: totalsX - 10,
-      y: y - 8,
-      width: width - totalsX - 40,
-      height: 26,
-      color: lightBg,
-      borderColor: primaryColor,
-      borderWidth: 1,
-    });
-
-    page.drawText("TOTAL TTC:", { x: totalsX, y: y - 2, size: 10, font: fontBold, color: primaryColor });
-    const totalStr = formatPdfCurrency(data.invoice.total, data.invoice.currency);
-    page.drawText(totalStr, { x: totalsValX - 5, y: y - 2, size: 11, font: fontBold, color: primaryColor });
-
-    // Payment & Banking Instructions
-    y -= 45;
-    page.drawText("PAYMENT DETAILS", { x: 50, y, size: 8, font: fontBold, color: secondaryColor });
-    y -= 13;
-
-    if (data.company.iban) {
-      page.drawText(cleanPdfText(`IBAN: ${data.company.iban}`), { x: 50, y, size: 8.5, font: fontRegular, color: darkColor });
-      y -= 12;
-    }
-    if (data.company.bic) {
-      page.drawText(cleanPdfText(`BIC / SWIFT: ${data.company.bic}`), { x: 50, y, size: 8.5, font: fontRegular, color: darkColor });
-      y -= 12;
-    }
-
-    // Notes
-    const notes = data.invoice.notes || data.company.invoiceNotes;
-    if (notes) {
+    const notice = getInvoiceVatNotice(invoice.vatNotice);
+    if (notice) paragraph(notice);
+    if (company.iban || company.bic) {
+      ensureSpace(34);
       y -= 6;
-      page.drawText("NOTES / TERMS", { x: 50, y, size: 8, font: fontBold, color: secondaryColor });
-      y -= 12;
-      const notesClean = cleanPdfText(notes.replace(/\r?\n/g, " "));
-      const displayNotes = notesClean.length > 100 ? `${notesClean.substring(0, 97)}...` : notesClean;
-      page.drawText(displayNotes, { x: 50, y, size: 8, font: fontRegular, color: secondaryColor });
+      paragraph("RÈGLEMENT PAR VIREMENT", 8, bold, ink);
+      if (company.iban) paragraph("IBAN · " + company.iban, 9);
+      if (company.bic) paragraph("BIC / SWIFT · " + company.bic, 9);
+    }
+    const notes = invoice.notes ?? company.invoiceNotes;
+    if (notes) {
+      ensureSpace(34);
+      y -= 6;
+      paragraph("CONDITIONS ET NOTES", 8, bold, ink);
+      paragraph(notes, 9);
     }
 
-    // Footer
-    page.drawLine({
-      start: { x: 50, y: 40 },
-      end: { x: width - 50, y: 40 },
-      thickness: 0.5,
-      color: borderColor,
-    });
-
-    const footerText = cleanPdfText(`${data.company.companyName} - Invoice ${data.invoice.invoiceNumber} - Page 1 of 1`);
-    const footerWidth = fontRegular.widthOfTextAtSize(footerText, 7.5);
-    page.drawText(footerText, {
-      x: (width - footerWidth) / 2,
-      y: 28,
-      size: 7.5,
-      font: fontRegular,
-      color: secondaryColor,
-    });
-
+    const pages = doc.getPages();
+    for (const [index, currentPage] of pages.entries()) {
+      page = currentPage;
+      line(42);
+      drawRight("Page " + (index + 1) + " / " + pages.length, right, 28, 8);
+    }
     return doc.save();
   }
 
-  /**
-   * Generates invoice PDF and saves it to file storage
-   */
-  static async generateAndSaveInvoicePdf(data: InvoicePdfData): Promise<{
-    storagePath: string;
-    fileUrl: string;
-  }> {
+  static async generateAndSaveInvoicePdf(data: InvoicePdfData) {
     const pdfBytes = await this.generateInvoicePdf(data);
-    const fileName = `${data.invoice.invoiceNumber}.pdf`;
-    const folder = `invoices/${data.invoice.id}`;
-
-    const storedFile = await StorageService.uploadFile(
-      pdfBytes,
-      fileName,
-      "application/pdf",
-      folder
-    );
-
-    return {
-      storagePath: storedFile.storagePath,
-      fileUrl: storedFile.fileUrl,
-    };
+    // Use a safe filename even when the display number contains punctuation.
+    const safeNumber = data.invoice.invoiceNumber.replace(/[^a-zA-Z0-9_-]+/g, "_");
+    const name = safeNumber + ".pdf";
+    const stored = await StorageService.uploadFile(pdfBytes, name, "application/pdf", "invoices/" + data.invoice.id + "/" + randomUUID());
+    return { ...stored, name };
   }
 }

@@ -141,7 +141,7 @@ export function ContractDetailClient({ contract }: { contract: any }) {
 
           <Link href={`/invoices/new?clientId=${contract.clientId}&contractId=${contract.id}`}>
             <Button variant="outline" size="sm" className="gap-1.5">
-              <Plus className="h-4 w-4" /> Record Invoice
+              <Plus className="h-4 w-4" /> New Invoice
             </Button>
           </Link>
           <Button variant="ghost" size="icon" onClick={handleArchive} className="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40">

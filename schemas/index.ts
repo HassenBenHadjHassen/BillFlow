@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getInvoiceLogo } from "@/lib/invoice";
 
 export const LoginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -73,9 +74,9 @@ export const RenewContractSchema = z.object({
 export type RenewContractInput = z.infer<typeof RenewContractSchema>;
 
 export const InvoiceItemSchema = z.object({
-  description: z.string().min(1, "Description is required"),
-  quantity: z.coerce.number().min(0.01, "Quantity must be greater than 0"),
-  unitPrice: z.coerce.number().min(0, "Unit price must be at least 0"),
+  description: z.string().trim().min(1, "Line item description is required").max(2000),
+  quantity: z.coerce.number().finite().min(0.01, "Quantity must be greater than 0"),
+  unitPrice: z.coerce.number().finite().min(0, "Unit price must be at least 0"),
   taxRate: z.coerce.number().min(0, "Tax rate must be at least 0").default(20),
 });
 export type InvoiceItemInput = z.infer<typeof InvoiceItemSchema>;
@@ -100,16 +101,34 @@ export const SaveInvoiceSchema = z.object({
 });
 export type SaveInvoiceInput = z.infer<typeof SaveInvoiceSchema>;
 
+const invoiceDate = z.string().refine((value) => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return false;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return date.toISOString().slice(0, 10) === value;
+  return z.string().datetime({ offset: true }).safeParse(value).success;
+}, "Enter a valid invoice date");
+
 export const InvoiceSchema = z.object({
   clientId: z.string().min(1, "Client is required"),
   contractId: z.string().optional().nullable(),
-  issueDate: z.string().min(1, "Issue date is required"),
-  dueDate: z.string().min(1, "Due date is required"),
-  currency: z.string().default("EUR"),
-  notes: z.string().optional().nullable(),
-  billingPeriodStart: z.string().optional().nullable(),
-  billingPeriodEnd: z.string().optional().nullable(),
-  items: z.array(InvoiceItemSchema).min(1, "At least one item is required"),
+  invoiceNumber: z.string().trim().min(1, "Invoice number is required").max(100).optional(),
+  issueDate: invoiceDate,
+  dueDate: invoiceDate,
+  currency: z.string().regex(/^[A-Z]{3}$/, "Choose a valid currency").default("EUR"),
+  notes: z.string().max(5000).optional().nullable(),
+  billingPeriodStart: invoiceDate.optional().nullable(),
+  billingPeriodEnd: invoiceDate.optional().nullable(),
+  showUnitPrice: z.boolean().optional(),
+  vatNotice: z.enum(["exemption", "cibsExemption", "reverseCharge"]).optional(),
+  items: z.array(InvoiceItemSchema).min(1, "Add at least one line item").max(100),
+}).refine(({ issueDate, dueDate }) => new Date(dueDate) >= new Date(issueDate), {
+  message: "Due date must be on or after the issue date",
+  path: ["dueDate"],
+}).refine(({ billingPeriodStart, billingPeriodEnd }) => (
+  !billingPeriodStart || !billingPeriodEnd || new Date(billingPeriodEnd) >= new Date(billingPeriodStart)
+), {
+  message: "Billing period end must be on or after its start",
+  path: ["billingPeriodEnd"],
 });
 export type InvoiceInput = z.infer<typeof InvoiceSchema>;
 
@@ -137,7 +156,7 @@ export type UpdatePaymentDateInput = z.infer<typeof UpdatePaymentDateSchema>;
 
 export const CompanySettingsSchema = z.object({
   companyName: z.string().min(2, "Company name is required"),
-  logo: z.string().optional().nullable(),
+  logo: z.string().refine((value) => Boolean(getInvoiceLogo(value)), "Choose a PNG or JPEG logo up to 1 MB").optional().nullable(),
   address: z.string().optional().nullable(),
   city: z.string().optional().nullable(),
   postalCode: z.string().optional().nullable(),

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { PDFDocument } from "pdf-lib";
 import { PdfService } from "@/services/pdf.service";
 
 describe("PDF Invoice Generation", () => {
@@ -55,5 +56,15 @@ describe("PDF Invoice Generation", () => {
     // Verify PDF header magic bytes "%PDF-"
     const headerStr = Buffer.from(pdfBytes.slice(0, 5)).toString("ascii");
     expect(headerStr).toBe("%PDF-");
+
+    const multiPageBytes = await PdfService.generateInvoicePdf({
+      ...mockInvoiceData,
+      invoice: { ...mockInvoiceData.invoice, showUnitPrice: false, vatNotice: "reverseCharge" },
+      items: Array.from({ length: 60 }, () => ({
+        ...mockInvoiceData.items[0],
+        description: "Intégration de la boutique et mise en ligne.\nParamétrage et validation du parcours client.",
+      })),
+    });
+    expect((await PDFDocument.load(multiPageBytes)).getPageCount()).toBeGreaterThan(1);
   });
 });

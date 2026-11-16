@@ -49,4 +49,34 @@ describe("Invoice naming and zero VAT", () => {
     expect(invoice.taxRate).toBe(0);
     expect(invoice.taxAmount).toBe(0);
   });
+
+  it("preserves generated invoice options and vault links across PDF regeneration", async () => {
+    const client = await db.client.create({ data: { companyName: "Composer Test", email: "composer@example.com" } });
+    const data = {
+      clientId: client.id,
+      issueDate: "2026-11-03",
+      dueDate: "2026-12-03",
+      currency: "GBP",
+      showUnitPrice: false,
+      vatNotice: "reverseCharge" as const,
+      notes: "",
+      items: [
+        { description: "Development", quantity: 1.5, unitPrice: 37.55, taxRate: 20 },
+        { description: "Consulting", quantity: 1, unitPrice: 25, taxRate: 20 },
+      ],
+    };
+    const first = await InvoiceService.createInvoice(data);
+    const second = await InvoiceService.createInvoice(data, { autoSend: true });
+    expect(second.invoiceNumber).toBe(first.invoiceNumber + "-2");
+    expect(first.total).toBe(81.33);
+
+    const regeneratedUrl = await InvoiceService.regeneratePdf(first.id);
+    const saved = await InvoiceService.getInvoiceById(first.id);
+    expect(saved?.items.map(({ description }) => description)).toEqual(["Development", "Consulting"]);
+    expect(saved).toMatchObject({ showUnitPrice: false, vatNotice: "reverseCharge", notes: "", pdfUrl: regeneratedUrl });
+    expect(saved?.documents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ clientId: client.id, fileUrl: regeneratedUrl, fileSize: expect.any(Number) }),
+    ]));
+    expect(saved?.documents.find(({ fileUrl }) => fileUrl === regeneratedUrl)?.fileSize).toBeGreaterThan(1000);
+  });
 });

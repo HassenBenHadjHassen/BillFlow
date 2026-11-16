@@ -62,7 +62,7 @@ function InvoiceFormDialogContent({ onOpenChange, clients = [], contracts = [], 
   }
   const paymentStates = [{ value: "Sent", label: "Awaiting payment", icon: Clock3 }, { value: "Paid", label: "Paid", icon: Check }, { value: "Draft", label: "Draft", icon: FilePenLine }] as const;
   return <>
-    <DialogHeader><p className="bf-eyebrow mb-0">Billing</p><DialogTitle>New invoice</DialogTitle><DialogDescription>Add an invoice and keep its details and payment in one place.</DialogDescription></DialogHeader>
+    <DialogHeader><p className="bf-eyebrow mb-0">Billing</p><DialogTitle>Record existing invoice</DialogTitle><DialogDescription>Add an invoice and keep its details and payment in one place.</DialogDescription></DialogHeader>
     {error && <p role="alert" className="mb-5 rounded-lg border border-rose-100 bg-rose-50 p-3 text-xs leading-relaxed text-rose-700">{error}</p>}
     <form onSubmit={submit} className="space-y-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

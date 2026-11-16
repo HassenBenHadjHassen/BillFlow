@@ -165,6 +165,8 @@ model Invoice {
   billingPeriodStart DateTime?
   billingPeriodEnd   DateTime?
   notes              String?
+  showUnitPrice      Boolean       @default(true)
+  vatNotice          String?
   pdfUrl             String?
   isArchived         Boolean       @default(false)
   createdAt          DateTime      @default(now())
@@ -192,6 +194,7 @@ model InvoiceItem {
   unitPrice   Float    @default(0)
   taxRate     Float    @default(20)
   total       Float    @default(0)
+  position    Int      @default(0)
   createdAt   DateTime @default(now())
 
   @@index([invoiceId])

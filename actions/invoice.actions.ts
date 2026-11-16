@@ -89,12 +89,16 @@ export async function createInvoiceAction(formData: unknown, options?: { autoSen
   }
 
   try {
-    const invoice = await InvoiceService.createInvoice(parse.data, options);
+    const invoice = await InvoiceService.createInvoice(parse.data, {
+      autoSend: options?.autoSend === true,
+    });
     revalidatePath("/invoices");
     revalidatePath(`/clients/${invoice.clientId}`);
     if (invoice.contractId) revalidatePath(`/contracts/${invoice.contractId}`);
     revalidatePath("/dashboard");
     revalidatePath("/reports");
+    revalidatePath("/documents");
+    revalidatePath("/recurring");
     return { success: true, invoice };
   } catch (err: unknown) {
     return { success: false, error: (err as Error).message };
@@ -119,6 +123,8 @@ export async function regeneratePdfAction(invoiceId: string) {
   try {
     const pdfUrl = await InvoiceService.regeneratePdf(invoiceId);
     revalidatePath(`/invoices/${invoiceId}`);
+    revalidatePath("/invoices");
+    revalidatePath("/documents");
     return { success: true, pdfUrl };
   } catch (err: unknown) {
     return { success: false, error: (err as Error).message };

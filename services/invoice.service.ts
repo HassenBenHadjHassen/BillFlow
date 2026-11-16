@@ -4,6 +4,10 @@ import { calculateInvoiceTotals, calculateInvoicePaymentStatus, roundMoney } fro
 import { formatInvoiceNumber, INVOICE_TAX_RATE } from "@/lib/invoice";
 import { PdfService } from "./pdf.service";
 import { StorageService } from "./storage.service";
+import type { Prisma } from "@prisma/client";
+
+const itemOrder = [{ position: "asc" }, { createdAt: "asc" }] satisfies Prisma.InvoiceItemOrderByWithRelationInput[];
+const defaultCompany = { companyName: "My Business", country: "France", invoiceNotes: null };
 
 export class InvoiceService {
   /** Generates an invoice name from today's date and the client's company. */
@@ -38,7 +42,7 @@ export class InvoiceService {
       include: {
         client: true,
         contract: true,
-        items: true,
+        items: { orderBy: itemOrder },
         payments: true,
       },
     });
@@ -67,7 +71,7 @@ export class InvoiceService {
       include: {
         client: true,
         contract: true,
-        items: true,
+        items: { orderBy: itemOrder },
         payments: {
           orderBy: { paymentDate: "desc" },
         },
@@ -420,120 +424,94 @@ export class InvoiceService {
   }
 
   static async createInvoice(data: InvoiceInput, options?: { autoSend?: boolean }) {
-    // 1. Authoritative server-side calculation
-    const items = data.items.map((item) => ({ ...item, taxRate: INVOICE_TAX_RATE }));
+    const items = data.items.map((item, position) => ({
+      ...item,
+      position,
+      taxRate: INVOICE_TAX_RATE,
+      total: roundMoney(item.quantity * item.unitPrice),
+    }));
     const totals = calculateInvoiceTotals(items);
-    const invoiceNumber = await this.generateInvoiceNumber(data.clientId);
-    const issueDate = new Date(data.issueDate);
-    const dueDate = new Date(data.dueDate);
+    if (!Number.isSafeInteger(Math.round(totals.total * 100))) {
+      throw new Error("The invoice total is too large.");
+    }
 
-    // 2. Fetch company settings for prefix and invoice details
-    const settings = await db.companySettings.findFirst() || {
-      companyName: "My Business",
-      invoicePrefix: "F",
-      defaultTaxRate: INVOICE_TAX_RATE,
-      invoiceNotes: null,
-      address: null,
-      city: null,
-      postalCode: null,
-      country: "France",
-      email: null,
-      phone: null,
-      siret: null,
-      vatNumber: null,
-      iban: null,
-      bic: null,
-    };
+    let storedPath: string | undefined;
+    try {
+      return await db.$transaction(async (tx) => {
+        const client = await tx.client.findUnique({ where: { id: data.clientId } });
+        if (!client || client.isArchived) throw new Error("Choose an active client.");
+        if (data.contractId) {
+          const contract = await tx.contract.findUnique({ where: { id: data.contractId } });
+          if (!contract || contract.isArchived || contract.clientId !== client.id) {
+            throw new Error("Choose a contract belonging to this client.");
+          }
+        }
 
-    return db.$transaction(async (tx) => {
-      // The name is shared with the invoice-entry forms.
+        const baseNumber = data.invoiceNumber || formatInvoiceNumber(client.companyName);
+        let invoiceNumber = baseNumber;
+        const matches = await tx.invoice.findMany({
+          where: { invoiceNumber: { startsWith: baseNumber } },
+          select: { invoiceNumber: true },
+        });
+        const usedNumbers = new Set(matches.map((match) => match.invoiceNumber));
+        if (data.invoiceNumber && usedNumbers.has(invoiceNumber)) {
+          throw new Error("An invoice with this number already exists.");
+        }
+        for (let suffix = 2; usedNumbers.has(invoiceNumber); suffix++) {
+          invoiceNumber = baseNumber + "-" + suffix;
+        }
 
-      // 4. Create invoice record
-      const invoice = await tx.invoice.create({
-        data: {
-          clientId: data.clientId,
-          contractId: data.contractId || null,
-          invoiceNumber,
-          issueDate,
-          dueDate,
-          currency: data.currency || "EUR",
-          subtotal: totals.subtotal,
-          taxRate: INVOICE_TAX_RATE,
-          taxAmount: totals.taxAmount,
-          total: totals.total,
-          status: options?.autoSend ? "Sent" : "Draft",
-          notes: data.notes || settings.invoiceNotes || null,
-          billingPeriodStart: data.billingPeriodStart ? new Date(data.billingPeriodStart) : null,
-          billingPeriodEnd: data.billingPeriodEnd ? new Date(data.billingPeriodEnd) : null,
-          items: {
-            create: items.map((item) => ({
-              description: item.description,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              taxRate: item.taxRate,
-              total: roundMoney(item.quantity * item.unitPrice),
-            })),
+        const company = await tx.companySettings.findFirst() || defaultCompany;
+        const issueDate = new Date(data.issueDate);
+        const invoice = await tx.invoice.create({
+          data: {
+            clientId: client.id,
+            contractId: data.contractId || null,
+            invoiceNumber,
+            issueDate,
+            dueDate: new Date(data.dueDate),
+            currency: data.currency,
+            ...totals,
+            taxRate: INVOICE_TAX_RATE,
+            status: options?.autoSend ? "Sent" : "Draft",
+            notes: data.notes?.trim() ?? company.invoiceNotes,
+            showUnitPrice: data.showUnitPrice,
+            vatNotice: data.vatNotice,
+            billingPeriodStart: data.billingPeriodStart ? new Date(data.billingPeriodStart) : null,
+            billingPeriodEnd: data.billingPeriodEnd ? new Date(data.billingPeriodEnd) : null,
+            items: { create: items },
           },
-        },
-        include: {
-          client: true,
-          contract: true,
-          items: true,
-        },
-      });
+          include: { client: true, contract: true, items: { orderBy: itemOrder } },
+        });
 
-      // 5. Generate PDF and link to invoice & documents
-      try {
-        const pdfResult = await PdfService.generateAndSaveInvoicePdf({
-          invoice: {
-            id: invoice.id,
-            invoiceNumber: invoice.invoiceNumber,
-            issueDate: invoice.issueDate,
-            dueDate: invoice.dueDate,
-            currency: invoice.currency,
-            subtotal: invoice.subtotal,
-            taxRate: invoice.taxRate,
-            taxAmount: invoice.taxAmount,
-            total: invoice.total,
-            status: invoice.status,
-            notes: invoice.notes,
-          },
+        const pdf = await PdfService.generateAndSaveInvoicePdf({
+          invoice,
           client: invoice.client,
-          contract: invoice.contract ? {
-            title: invoice.contract.title,
-            contractNumber: invoice.contract.contractNumber,
-          } : null,
+          contract: invoice.contract,
           items: invoice.items,
-          company: settings,
+          company,
         });
-
-        // Update invoice with pdfUrl
-        await tx.invoice.update({
-          where: { id: invoice.id },
-          data: { pdfUrl: pdfResult.fileUrl },
-        });
-
-        // Create document record
+        storedPath = pdf.storagePath;
+        await tx.invoice.update({ where: { id: invoice.id }, data: { pdfUrl: pdf.fileUrl } });
         await tx.document.create({
           data: {
-            name: `${invoice.invoiceNumber}.pdf`,
+            name: pdf.name,
             type: "Invoice",
-            fileUrl: pdfResult.fileUrl,
-            storagePath: pdfResult.storagePath,
-            fileSize: 0,
-            mimeType: "application/pdf",
+            fileUrl: pdf.fileUrl,
+            storagePath: pdf.storagePath,
+            fileSize: pdf.fileSize,
+            mimeType: pdf.mimeType,
             clientId: invoice.clientId,
             contractId: invoice.contractId,
             invoiceId: invoice.id,
           },
         });
-
-        return { ...invoice, pdfUrl: pdfResult.fileUrl };
-      } catch (err) {
-        console.error("PDF generation during invoice creation failed:", err);
-        return invoice;
-      }
-    });
+        return { ...invoice, pdfUrl: pdf.fileUrl };
+      });
+    } catch (error) {
+      if (storedPath) await StorageService.deleteFile(storedPath);
+      throw error;
+    }
   }
 
   static async updateInvoiceStatus(id: string, newStatus: string) {
@@ -558,56 +536,40 @@ export class InvoiceService {
   static async regeneratePdf(invoiceId: string) {
     const invoice = await db.invoice.findUnique({
       where: { id: invoiceId },
-      include: { client: true, contract: true, items: true },
+      include: { client: true, contract: true, items: { orderBy: itemOrder } },
     });
-
     if (!invoice) throw new Error("Invoice not found");
 
-    const settings = await db.companySettings.findFirst() || {
-      companyName: "My Business",
-      defaultTaxRate: INVOICE_TAX_RATE,
-      invoiceNotes: null,
-      address: null,
-      city: null,
-      postalCode: null,
-      country: "France",
-      email: null,
-      phone: null,
-      siret: null,
-      vatNumber: null,
-      iban: null,
-      bic: null,
-    };
-
-    const pdfResult = await PdfService.generateAndSaveInvoicePdf({
-      invoice: {
-        id: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        issueDate: invoice.issueDate,
-        dueDate: invoice.dueDate,
-        currency: invoice.currency,
-        subtotal: invoice.subtotal,
-        taxRate: invoice.taxRate,
-        taxAmount: invoice.taxAmount,
-        total: invoice.total,
-        status: invoice.status,
-        notes: invoice.notes,
-      },
+    const company = await db.companySettings.findFirst() || defaultCompany;
+    const pdf = await PdfService.generateAndSaveInvoicePdf({
+      invoice,
       client: invoice.client,
-      contract: invoice.contract ? {
-        title: invoice.contract.title,
-        contractNumber: invoice.contract.contractNumber,
-      } : null,
+      contract: invoice.contract,
       items: invoice.items,
-      company: settings,
+      company,
     });
-
-    await db.invoice.update({
-      where: { id: invoice.id },
-      data: { pdfUrl: pdfResult.fileUrl },
-    });
-
-    return pdfResult.fileUrl;
+    try {
+      await db.$transaction([
+        db.invoice.update({ where: { id: invoiceId }, data: { pdfUrl: pdf.fileUrl } }),
+        db.document.create({
+          data: {
+            name: pdf.name,
+            type: "Invoice",
+            fileUrl: pdf.fileUrl,
+            storagePath: pdf.storagePath,
+            fileSize: pdf.fileSize,
+            mimeType: pdf.mimeType,
+            clientId: invoice.clientId,
+            contractId: invoice.contractId,
+            invoiceId,
+          },
+        }),
+      ]);
+    } catch (error) {
+      await StorageService.deleteFile(pdf.storagePath);
+      throw error;
+    }
+    return pdf.fileUrl;
   }
 
   static async archiveInvoice(id: string) {

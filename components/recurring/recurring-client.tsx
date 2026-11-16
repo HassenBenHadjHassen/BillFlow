@@ -224,7 +224,7 @@ export function RecurringClient({ configs }: { configs: any[] }) {
                   {/* Actions for this recurring schedule */}
                   <div className="flex items-center gap-2 shrink-0">
                     <Link
-                      href={`/invoices/new?clientId=${cfg.contract.clientId}&contractId=${cfg.contract.id}&amount=${cfg.amount}`}
+                      href={`/invoices/new?mode=import&clientId=${cfg.contract.clientId}&contractId=${cfg.contract.id}&amount=${cfg.amount}`}
                     >
                       <Button
                         size="sm"

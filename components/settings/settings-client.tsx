@@ -11,6 +11,7 @@ import { updateCompanySettingsAction } from "@/actions/settings.actions";
 import { updateProfileAction, changePasswordAction } from "@/actions/auth.actions";
 import { useToast } from "@/components/ui/toast";
 import { CompanySettingsDTO, UserSession } from "@/types";
+import { getInvoiceLogo } from "@/lib/invoice";
 
 export function SettingsClient({
   settings,
@@ -25,6 +26,8 @@ export function SettingsClient({
   // Company Settings State
   const [isSavingCompany, setIsSavingCompany] = React.useState(false);
   const [companyName, setCompanyName] = React.useState(settings.companyName);
+  const [logo, setLogo] = React.useState<string | null | undefined>(getInvoiceLogo(settings.logo));
+  const [isReadingLogo, setIsReadingLogo] = React.useState(false);
   const [address, setAddress] = React.useState(settings.address || "");
   const [city, setCity] = React.useState(settings.city || "");
   const [postalCode, setPostalCode] = React.useState(settings.postalCode || "");
@@ -53,13 +56,31 @@ export function SettingsClient({
   const [newPassword, setNewPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
 
+  function readLogo(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!["image/png", "image/jpeg"].includes(file.type) || file.size > 1024 * 1024) {
+      toast({ title: "Choose a PNG or JPEG up to 1 MB", type: "error" });
+      return;
+    }
+    const reader = new FileReader();
+    setIsReadingLogo(true);
+    reader.onload = () => setLogo(String(reader.result));
+    reader.onerror = () => toast({ title: "Could not read the logo", type: "error" });
+    reader.onloadend = () => setIsReadingLogo(false);
+    reader.readAsDataURL(file);
+  }
+
   const handleSaveCompany = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isReadingLogo) return;
     setIsSavingCompany(true);
 
     try {
       const res = await updateCompanySettingsAction({
         companyName,
+        logo,
         address: address || null,
         city: city || null,
         postalCode: postalCode || null,
@@ -159,6 +180,17 @@ export function SettingsClient({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="bf-field">
+                  <label htmlFor="invoice-logo" className="bf-label">Invoice logo (optional)</label>
+                  {logo && (
+                    <div className="flex items-center gap-3">
+                      <img src={logo} alt="Company logo" className="max-h-12 max-w-28 object-contain" />
+                      <Button type="button" variant="ghost" size="sm" disabled={isReadingLogo} onClick={() => setLogo(null)}>Remove logo</Button>
+                    </div>
+                  )}
+                  <Input id="invoice-logo" type="file" accept="image/png,image/jpeg" disabled={isReadingLogo} onChange={readLogo} />
+                  <p className="text-xs text-slate-500">PNG or JPEG, up to 1 MB.</p>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1 sm:col-span-2">
                     <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Company Name *</label>
@@ -286,7 +318,7 @@ export function SettingsClient({
             </Card>
 
             <div className="flex justify-end">
-              <Button type="submit" isLoading={isSavingCompany} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm">
+              <Button type="submit" isLoading={isSavingCompany} disabled={isReadingLogo} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm">
                 <Save className="h-4 w-4" /> Save Company Settings
               </Button>
             </div>
