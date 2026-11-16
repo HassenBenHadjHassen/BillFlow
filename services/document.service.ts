@@ -51,6 +51,14 @@ export class DocumentService {
     });
   }
 
+  static async getDocumentsForDownload() {
+    return db.document.findMany({
+      where: { isArchived: false },
+      orderBy: [{ uploadedAt: "desc" }, { id: "asc" }],
+      select: { name: true, storagePath: true, uploadedAt: true },
+    });
+  }
+
   static async uploadDocument(
     fileBuffer: Buffer | Uint8Array,
     fileName: string,

@@ -81,10 +81,22 @@ export function DocumentsClient({
           </p>
         </div>
 
-        <Button onClick={() => setUploadDialogOpen(true)} className="gap-2 shadow-sm">
-          <Plus className="h-4 w-4" />
-          <span>Upload Document</span>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={documents.length === 0}
+            onClick={() => window.location.assign("/api/documents/download")}
+            title="Download every document in the vault as a ZIP"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            Download all
+          </Button>
+          <Button onClick={() => setUploadDialogOpen(true)} className="gap-2 shadow-sm">
+            <Plus className="h-4 w-4" />
+            <span>Upload Document</span>
+          </Button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}

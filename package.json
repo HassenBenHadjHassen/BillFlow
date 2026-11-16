@@ -38,6 +38,7 @@
     "react-hook-form": "^7.54.2",
     "recharts": "^2.15.1",
     "tailwind-merge": "^3.0.1",
+    "yazl": "^3.3.1",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -45,6 +46,7 @@
     "@types/node": "^22.13.4",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
+    "@types/yazl": "^3.3.1",
     "autoprefixer": "^10.4.20",
     "pm2": "^7.0.4",
     "postcss": "^8.5.28",
