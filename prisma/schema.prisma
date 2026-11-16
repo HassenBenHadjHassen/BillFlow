@@ -258,6 +258,7 @@ model CompanySettings {
   website             String?
   siret               String?
   vatNumber           String?
+  bankName            String?
   iban                String?
   bic                 String?
   defaultCurrency     String   @default("EUR")

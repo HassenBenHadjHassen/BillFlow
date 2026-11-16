@@ -166,6 +166,7 @@ export const CompanySettingsSchema = z.object({
   website: z.string().optional().nullable(),
   siret: z.string().optional().nullable(),
   vatNumber: z.string().optional().nullable(),
+  bankName: z.string().trim().max(100).optional().nullable(),
   iban: z.string().optional().nullable(),
   bic: z.string().optional().nullable(),
   defaultCurrency: z.string().default("EUR"),

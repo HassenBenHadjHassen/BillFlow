@@ -37,6 +37,7 @@ export function SettingsClient({
   const [website, setWebsite] = React.useState(settings.website || "");
   const [siret, setSiret] = React.useState(settings.siret || "");
   const [vatNumber, setVatNumber] = React.useState(settings.vatNumber || "");
+  const [bankName, setBankName] = React.useState(settings.bankName || "");
   const [iban, setIban] = React.useState(settings.iban || "");
   const [bic, setBic] = React.useState(settings.bic || "");
   const [defaultCurrency, setDefaultCurrency] = React.useState(settings.defaultCurrency || "EUR");
@@ -90,6 +91,7 @@ export function SettingsClient({
         website: website || null,
         siret: siret || null,
         vatNumber: vatNumber || null,
+        bankName: bankName || null,
         iban: iban || null,
         bic: bic || null,
         defaultCurrency,
@@ -252,6 +254,11 @@ export function SettingsClient({
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">VAT Number</label>
                     <Input placeholder="FR 12 849123456" value={vatNumber} onChange={(e) => setVatNumber(e.target.value)} />
+                  </div>
+
+                  <div className="space-y-1 sm:col-span-2">
+                    <label htmlFor="company-bank-name" className="text-xs font-semibold text-slate-700 dark:text-slate-300">Bank name</label>
+                    <Input id="company-bank-name" maxLength={100} value={bankName} onChange={(e) => setBankName(e.target.value)} />
                   </div>
 
                   <div className="space-y-1">

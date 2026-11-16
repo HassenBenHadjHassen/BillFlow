@@ -149,6 +149,7 @@ export interface CompanySettingsDTO {
   website: string | null;
   siret: string | null;
   vatNumber: string | null;
+  bankName: string | null;
   iban: string | null;
   bic: string | null;
   defaultCurrency: string;

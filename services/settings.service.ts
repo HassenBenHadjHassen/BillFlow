@@ -43,6 +43,7 @@ export class SettingsService {
         website: data.website || null,
         siret: data.siret || null,
         vatNumber: data.vatNumber || null,
+        bankName: data.bankName || null,
         iban: data.iban || null,
         bic: data.bic || null,
         defaultCurrency: data.defaultCurrency || "EUR",

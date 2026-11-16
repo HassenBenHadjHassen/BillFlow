@@ -1,7 +1,10 @@
 import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from "pdf-lib";
 import { randomUUID } from "node:crypto";
 import { formatCurrency } from "@/lib/financial";
-import { formatInvoiceDate, getInvoiceLogo, getInvoiceVatNotice, invoicePartyDetails, type InvoiceParty } from "@/lib/invoice";
+import {
+  getInvoiceLogo, getInvoiceVatNotice, invoiceBankDetails, invoiceBillingDetails,
+  invoiceFooter, invoiceLabels, invoicePaper, invoicePartyBlock, type InvoiceCompany, type InvoiceParty,
+} from "@/lib/invoice";
 import { StorageService } from "./storage.service";
 
 export interface InvoicePdfData {
@@ -31,23 +34,30 @@ export interface InvoicePdfData {
     taxRate: number;
     total: number;
   }>;
-  company: InvoiceParty & {
-    logo?: string | null;
-    iban?: string | null;
-    bic?: string | null;
-    invoiceNotes?: string | null;
-  };
+  company: InvoiceCompany;
 }
 
-const ink = rgb(0.11, 0.15, 0.22);
-const muted = rgb(0.32, 0.38, 0.46);
-const rule = rgb(0.88, 0.9, 0.93);
-const surface = rgb(0.96, 0.97, 0.98);
+function pdfColor(hex: string) {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return rgb((value >> 16) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255);
+}
+
+const { ink, text, muted, accent, surface, border, divider } = {
+  ink: pdfColor(invoicePaper.ink),
+  text: pdfColor(invoicePaper.text),
+  muted: pdfColor(invoicePaper.muted),
+  accent: pdfColor(invoicePaper.accent),
+  surface: pdfColor(invoicePaper.surface),
+  border: pdfColor(invoicePaper.border),
+  divider: pdfColor(invoicePaper.divider),
+};
+const white = rgb(1, 1, 1);
 const pageSize: [number, number] = [595.28, 841.89];
-const margin = 42;
+const margin = 40;
 const right = pageSize[0] - margin;
 const contentWidth = right - margin;
-const bottom = 58;
+const top = pageSize[1] - margin;
+const bottom = 67;
 
 function printable(value: string, supported: Set<number>): string {
   return Array.from(value.normalize("NFC").replace(/[^\S\n]+/g, " "), (char) => {
@@ -70,7 +80,7 @@ function wrap(text: string, font: PDFFont, size: number, width: number): string[
       if (line) lines.push(line);
       line = "";
       for (const char of word) {
-        if (font.widthOfTextAtSize(line + char, size) > width) {
+        if (line && font.widthOfTextAtSize(line + char, size) > width) {
           lines.push(line);
           line = "";
         }
@@ -88,168 +98,260 @@ export class PdfService {
     doc.setTitle("Facture " + invoice.invoiceNumber);
     const regular = await doc.embedFont(StandardFonts.Helvetica);
     const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const italic = await doc.embedFont(StandardFonts.HelveticaOblique);
     const supported = new Set(regular.getCharacterSet());
     const clean = (value: string) => printable(value, supported);
     const money = (amount: number) => formatCurrency(amount, invoice.currency);
 
     let page: PDFPage = doc.addPage(pageSize);
-    let y = pageSize[1] - margin;
-    function draw(value: string, x: number, baseline: number, size = 10, font = regular, color = ink) {
+    let y = top;
+
+    function draw(value: string, x: number, baseline: number, size = 9, font = regular, color = ink) {
       page.drawText(clean(value), { x, y: baseline, size, font, color });
     }
-    function drawRight(value: string, x: number, baseline: number, size = 10, font = regular, maxWidth = contentWidth) {
+
+    function aligned(value: string, x: number, baseline: number, size: number, {
+      font = regular, color = ink, width = contentWidth, center = false,
+    } = {}) {
       const textWidth = font.widthOfTextAtSize(clean(value), size);
-      const scale = textWidth > maxWidth ? maxWidth / textWidth : 1;
-      draw(value, x - textWidth * scale, baseline, size * scale, font);
+      const scale = textWidth > width ? width / textWidth : 1;
+      draw(value, x - textWidth * scale / (center ? 2 : 1), baseline, size * scale, font, color);
     }
-    function line(baseline: number) {
-      page.drawLine({ start: { x: margin, y: baseline }, end: { x: right, y: baseline }, thickness: 0.75, color: rule });
+
+    function line(baseline: number, start = margin, end = right, color = border, thickness = 0.6) {
+      page.drawLine({ start: { x: start, y: baseline }, end: { x: end, y: baseline }, thickness, color });
     }
+
+    function panel(x: number, upper: number, width: number, height: number, style: "card" | "dark" | "dashed" = "card") {
+      const r = style === "dark" ? 3 : 4;
+      const path = `M ${r} 0 H ${width - r} Q ${width} 0 ${width} ${r} V ${height - r}
+        Q ${width} ${height} ${width - r} ${height} H ${r} Q 0 ${height} 0 ${height - r} V ${r} Q 0 0 ${r} 0 Z`;
+      page.drawSvgPath(path, {
+        x, y: upper,
+        color: style === "dark" ? ink : style === "card" ? surface : undefined,
+        borderColor: style === "dark" ? undefined : style === "dashed" ? divider : border,
+        borderWidth: style === "dark" ? 0 : style === "dashed" ? 0.55 : 0.85,
+        borderDashArray: style === "dashed" ? [1.4, 1.1] : undefined,
+      });
+    }
+
     function nextPage() {
       page = doc.addPage(pageSize);
-      y = pageSize[1] - margin;
-      drawRight("Facture " + invoice.invoiceNumber, right, y, 10, bold);
-      y -= 22;
+      y = top;
+      draw("FACTURE", margin, y - 7, 11, bold);
+      aligned("N° " + invoice.invoiceNumber, right, y - 7, 9, { font: bold, color: accent, width: contentWidth - 65 });
+      y -= 18;
+      line(y);
+      y -= 18;
     }
+
     function ensureSpace(height: number) {
       if (y - height < bottom) nextPage();
     }
-    function paragraph(text: string, size = 10, font = regular, color = muted) {
-      for (const part of wrap(clean(text), font, size, contentWidth)) {
-        ensureSpace(14);
-        draw(part, margin, y, size, font, color);
-        y -= 14;
-      }
-    }
 
-    draw("FACTURE", margin, y - 13, 26, bold);
+    draw("FACTURE", margin, y - 23, 27, bold);
     const logo = getInvoiceLogo(company.logo);
     if (logo) {
       try {
         const image = logo.startsWith("data:image/png") ? await doc.embedPng(logo) : await doc.embedJpg(logo);
-        const dimensions = image.scaleToFit(115, 44);
-        page.drawImage(image, { ...dimensions, x: right - dimensions.width, y: y - dimensions.height });
+        const dimensions = image.scaleToFit(104, 46);
+        page.drawImage(image, { ...dimensions, x: right - dimensions.width, y: y - 24 - dimensions.height / 2 });
       } catch {
         // A previously saved invalid logo should not prevent invoice generation.
       }
     }
-    draw("N° " + invoice.invoiceNumber, margin, y - 33, 10, regular, muted);
-    y -= 55;
-    line(y);
-    y -= 23;
+    const numberLines = wrap(clean("N° " + invoice.invoiceNumber), bold, 11, contentWidth - (logo ? 120 : 0));
+    numberLines.forEach((part, index) => draw(part, margin, y - 42 - index * 13, 11, bold, accent));
+    y -= 63 + (numberLines.length - 1) * 13;
+    line(y, margin, right, border, 1);
+    y -= 21;
 
-    const colWidth = (contentWidth - 26) / 2;
-    const parties = [company, client].map((party, index) => ({
-      heading: index === 0 ? "ÉMETTEUR" : "CLIENT",
-      name: wrap(clean(party.companyName), bold, 12, colWidth),
-      details: invoicePartyDetails(party).flatMap((part) => wrap(clean(part), regular, 9, colWidth)),
-    }));
-    for (const [index, party] of parties.entries()) {
-      const x = margin + index * (colWidth + 26);
-      draw(party.heading, x, y, 8, bold, muted);
-      party.name.forEach((part, row) => draw(part, x, y - 19 - 15 * row, 12, bold));
+    const gap = 12;
+    const cardWidth = (contentWidth - gap * 2) / 3;
+    const inset = 10;
+    const cardTextWidth = cardWidth - 2 * inset;
+    const detailSize = 8.5;
+    const cardStep = 11.5;
+    const cardBase = 44;
+    type CardLine = { value: string; prefix?: string; size: number; font: PDFFont; color: typeof text };
+    function partyLines(party: ReturnType<typeof invoicePartyBlock>): CardLine[] {
+      return [
+        ...wrap(clean(party.name), bold, 10, cardTextWidth).map((value) => ({ value, size: 10, font: bold, color: ink })),
+        ...party.details.flatMap((detail) => wrap(clean(detail), regular, detailSize, cardTextWidth)
+          .map((value) => ({ value, size: detailSize, font: regular, color: text }))),
+      ];
     }
-    y -= 19 + 15 * Math.max(...parties.map((party) => party.name.length));
-    const detailsHeight = Math.max(...parties.map((party) => party.details.length));
-    for (let row = 0; row < detailsHeight; row++) {
-      ensureSpace(13);
-      for (const [index, party] of parties.entries()) {
-        if (party.details[row]) draw(party.details[row], margin + index * (colWidth + 26), y, 9, regular, muted);
+    const billingLines = invoiceBillingDetails(invoice, company, contract).flatMap(({ label, value, emphasis }): CardLine[] => {
+      const prefix = label + " : ";
+      if (emphasis) return [{ value, prefix, size: detailSize, font: bold, color: ink }];
+      return wrap(clean(prefix + value), regular, detailSize, cardTextWidth)
+        .map((value) => ({ value, size: detailSize, font: regular, color: text }));
+    });
+    const cards = [
+      { heading: invoiceLabels.issuer, lines: partyLines(invoicePartyBlock(company)) },
+      { heading: invoiceLabels.client, lines: partyLines(invoicePartyBlock(client, true)) },
+      { heading: invoiceLabels.billing, lines: billingLines },
+    ];
+    const cardRows = Math.max(...cards.map((card) => card.lines.length));
+    let cardOffset = 0;
+    while (cardOffset < cardRows) {
+      ensureSpace(cardOffset === 0 ? 131 : cardBase + cardStep);
+      const rows = Math.min(cardRows - cardOffset, Math.floor((y - bottom - cardBase) / cardStep));
+      const height = Math.max(cardOffset === 0 ? 131 : 0, cardBase + rows * cardStep);
+      for (const [index, card] of cards.entries()) {
+        const x = margin + index * (cardWidth + gap);
+        panel(x, y, cardWidth, height);
+        draw(card.heading.toUpperCase(), x + inset, y - 17, 7.5, bold, accent);
+        line(y - 22, x + inset, x + cardWidth - inset, divider);
+        card.lines.slice(cardOffset, cardOffset + rows).forEach(({ value, prefix, size, font, color }, row) => {
+          const baseline = y - 36 - row * cardStep;
+          if (prefix) draw(prefix, x + inset, baseline, size, regular, text);
+          draw(value, x + inset + (prefix ? regular.widthOfTextAtSize(clean(prefix), size) : 0), baseline, size, font, color);
+        });
       }
-      y -= 13;
-    }
-
-    y -= 14;
-    ensureSpace(32);
-    draw("Émission · " + formatInvoiceDate(invoice.issueDate), margin, y, 10, bold);
-    draw("Échéance · " + formatInvoiceDate(invoice.dueDate), margin + colWidth + 26, y, 10, bold);
-    y -= 20;
-    if (contract) paragraph("Contrat · " + contract.contractNumber + " · " + contract.title, 9);
-    if (invoice.billingPeriodStart || invoice.billingPeriodEnd) {
-      const start = invoice.billingPeriodStart ? formatInvoiceDate(invoice.billingPeriodStart) : "—";
-      const end = invoice.billingPeriodEnd ? formatInvoiceDate(invoice.billingPeriodEnd) : "—";
-      paragraph("Période · " + start + " – " + end, 9);
+      cardOffset += rows;
+      y -= height + 20;
+      if (cardOffset < cardRows) nextPage();
     }
 
     const showUnitPrice = invoice.showUnitPrice !== false;
-    const quantityX = showUnitPrice ? margin + 315 : right - 12;
-    const priceX = right - 108;
-    const totalX = right - 12;
-    const descriptionWidth = quantityX - margin - 64;
+    const quantityX = showUnitPrice ? margin + contentWidth * 0.62 : right - 9;
+    const priceX = margin + contentWidth * 0.77;
+    const totalX = right - 8;
+    const descriptionWidth = showUnitPrice ? contentWidth * 0.57 - 16 : contentWidth - 66;
     const items = data.items.length ? data.items : [
       { description: "Prestations", quantity: 1, unitPrice: invoice.subtotal, total: invoice.subtotal },
     ];
 
+    const tableHeaderHeight = 23;
+    const rowInset = 13;
+    const rowStep = 10.5;
     function tableHeader() {
-      page.drawRectangle({ x: margin, y: y - 25, width: contentWidth, height: 25, color: surface });
-      draw("DESCRIPTION", margin + 10, y - 16, 8, bold, muted);
-      drawRight("QTÉ", quantityX, y - 16, 8, bold);
+      panel(margin, y, contentWidth, tableHeaderHeight, "dark");
+      const options = { font: bold, color: white };
+      draw(invoiceLabels.description.toUpperCase(), margin + 8, y - 14.5, 8, bold, white);
+      aligned(invoiceLabels.quantity.toUpperCase(), quantityX, y - 14.5, 8, { ...options, center: showUnitPrice });
       if (showUnitPrice) {
-        drawRight("PRIX UNIT. HT", priceX, y - 16, 8, bold);
-        drawRight("TOTAL HT", totalX, y - 16, 8, bold);
+        aligned(invoiceLabels.unitPrice.toUpperCase(), priceX, y - 14.5, 8, { ...options, center: true });
+        aligned(invoiceLabels.lineTotal.toUpperCase(), totalX, y - 14.5, 8, options);
       }
-      y -= 37;
+      y -= tableHeaderHeight;
     }
-    y -= 6;
-    ensureSpace(62);
+
+    const firstItemLines = wrap(clean(items[0].description), regular, 9, descriptionWidth);
+    ensureSpace(tableHeaderHeight + rowInset + Math.min(firstItemLines.length, 5) * rowStep);
     tableHeader();
-    for (const item of items) {
-      const description = wrap(clean(item.description), regular, 10, descriptionWidth);
-      for (const [index, part] of description.entries()) {
-        if (y - 16 < bottom) {
+    for (const [row, item] of items.entries()) {
+      const description = row === 0 ? firstItemLines : wrap(clean(item.description), regular, 9, descriptionWidth);
+      let offset = 0;
+      while (offset < description.length) {
+        const remaining = description.length - offset;
+        const available = Math.floor((y - bottom - rowInset) / rowStep);
+        if (available < 1 || (offset === 0 && available < remaining && remaining <= 5)) {
           nextPage();
           tableHeader();
         }
-        draw(part, margin + 10, y);
-        if (index === 0) {
-          drawRight(String(item.quantity), quantityX, y, 10, regular, 55);
+        const count = Math.min(remaining, Math.floor((y - bottom - rowInset) / rowStep));
+        const height = rowInset + count * rowStep;
+        if (row % 2 === 1) {
+          page.drawRectangle({ x: margin, y: y - height, width: contentWidth, height, color: surface });
+        }
+        description.slice(offset, offset + count).forEach((part, index) => draw(part, margin + 8, y - 15 - index * rowStep));
+        if (offset === 0) {
+          aligned(String(item.quantity), quantityX, y - 15, 9, { center: showUnitPrice, width: 48 });
           if (showUnitPrice) {
-            drawRight(money(item.unitPrice), priceX, y, 10, regular, 78);
-            drawRight(money(item.total), totalX, y, 10, bold, 90);
+            aligned(money(item.unitPrice), priceX, y - 15, 9, { center: true, width: 75 });
+            aligned(money(item.total), totalX, y - 15, 9, { font: bold, width: 75 });
           }
         }
-        y -= 14;
+        y -= height;
+        line(y);
+        offset += count;
       }
-      line(y + 5);
-      y -= 10;
     }
 
-    ensureSpace(92);
-    y -= 10;
-    const totalLabelX = right - 225;
-    draw("Total HT", totalLabelX, y, 10, regular, muted);
-    drawRight(money(invoice.subtotal), totalX, y, 10, regular, 100);
-    y -= 18;
-    draw("TVA (" + invoice.taxRate + " %)", totalLabelX, y, 10, regular, muted);
-    drawRight(money(invoice.taxAmount), totalX, y, 10, regular, 100);
-    y -= 26;
-    page.drawRectangle({ x: totalLabelX - 10, y: y - 9, width: right - totalLabelX + 10, height: 29, color: surface });
-    draw("NET À PAYER", totalLabelX, y, 10, bold);
-    drawRight(money(invoice.total), totalX, y, 13, bold, 110);
-    y -= 30;
+    y -= 14;
+    ensureSpace(67);
+    const totalsWidth = 220;
+    const totalsX = right - totalsWidth;
+    panel(totalsX, y, totalsWidth, 67);
+    draw(invoiceLabels.subtotal, totalsX + 9, y - 18, 8.5, regular, text);
+    aligned(money(invoice.subtotal), totalX, y - 18, 8.5, { font: bold, width: 99 });
+    draw("TVA (" + invoice.taxRate + "%) :", totalsX + 9, y - 31, 8.5, regular, text);
+    aligned(money(invoice.taxAmount), totalX, y - 31, 8.5, { font: bold, width: 99 });
+    line(y - 40, totalsX + 9, totalX, divider, 0.85);
+    draw(invoiceLabels.net, totalsX + 9, y - 56, 10, bold);
+    aligned(money(invoice.total), totalX, y - 56, 11, { font: bold, color: accent, width: 99 });
+    y -= 67;
 
     const notice = getInvoiceVatNotice(invoice.vatNotice);
-    if (notice) paragraph(notice);
-    if (company.iban || company.bic) {
-      ensureSpace(34);
-      y -= 6;
-      paragraph("RÈGLEMENT PAR VIREMENT", 8, bold, ink);
-      if (company.iban) paragraph("IBAN · " + company.iban, 9);
-      if (company.bic) paragraph("BIC / SWIFT · " + company.bic, 9);
-    }
-    const notes = invoice.notes ?? company.invoiceNotes;
-    if (notes) {
-      ensureSpace(34);
-      y -= 6;
-      paragraph("CONDITIONS ET NOTES", 8, bold, ink);
-      paragraph(notes, 9);
+    if (notice) {
+      const noticeLines = wrap(clean("« " + notice + " »"), italic, 8, contentWidth - 20);
+      const height = 11 + 11 * noticeLines.length;
+      y -= 26;
+      ensureSpace(height);
+      panel(margin, y, contentWidth, height, "dashed");
+      noticeLines.forEach((value, index) => aligned(value, margin + contentWidth / 2, y - 13.5 - index * 11, 8, {
+        font: italic, color: muted, center: true,
+      }));
+      y -= height;
     }
 
+    const bank = invoiceBankDetails(company);
+    if (bank.length) {
+      const detailWidth = contentWidth - 18;
+      const rows: Array<Array<{ value: string; x: number }>> = [[]];
+      let x = 0;
+      for (const detail of bank) {
+        for (const part of wrap(clean(detail), regular, 8.5, detailWidth)) {
+          const width = regular.widthOfTextAtSize(part, 8.5);
+          if (x + width > detailWidth) {
+            rows.push([]);
+            x = 0;
+          }
+          rows.at(-1)!.push({ value: part, x });
+          x += width + 16;
+        }
+      }
+      y -= 18;
+      let offset = 0;
+      while (offset < rows.length) {
+        ensureSpace(42);
+        const count = Math.min(rows.length - offset, Math.floor((y - bottom - 30) / 12));
+        const height = 30 + count * 12;
+        panel(margin, y, contentWidth, height);
+        draw(invoiceLabels.bank.toUpperCase(), margin + 9, y - 16, 8, bold, accent);
+        rows.slice(offset, offset + count).forEach((row, index) => {
+          row.forEach(({ value, x }) => draw(value, margin + 9 + x, y - 29 - index * 12, 8.5, regular, text));
+        });
+        y -= height;
+        offset += count;
+      }
+    }
+
+    const notes = invoice.notes ?? company.invoiceNotes;
+    if (notes?.trim()) {
+      y -= 18;
+      ensureSpace(27);
+      line(y);
+      draw(invoiceLabels.notes.toUpperCase(), margin, y - 13, 8, bold, muted);
+      y -= 24;
+      for (const part of wrap(clean(notes), regular, 8, contentWidth)) {
+        ensureSpace(9);
+        draw(part, margin, y, 8, regular, text);
+        y -= 11;
+      }
+    }
+
+    const footer = invoiceFooter(company);
     const pages = doc.getPages();
     for (const [index, currentPage] of pages.entries()) {
       page = currentPage;
-      line(42);
-      drawRight("Page " + (index + 1) + " / " + pages.length, right, 28, 8);
+      line(47);
+      aligned(footer, margin + contentWidth / 2, 32, 7.5, { color: muted, center: true });
+      if (pages.length > 1) {
+        aligned("Page " + (index + 1) + " / " + pages.length, right, 19, 7.5, { color: muted });
+      }
     }
     return doc.save();
   }
