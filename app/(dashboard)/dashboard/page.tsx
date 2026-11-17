@@ -31,8 +31,8 @@ export default async function DashboardPage() {
         <MetricCard label="Collected this month" value={formatCurrency(metrics.revenueThisMonth)} note="Payments received this calendar month" icon={ArrowDownLeft} emphasis />
         <MetricCard
           label="Estimated Tax"
-          value={estimatedTax?.amounts.map(({ currency, amount }) => <span key={currency} className="block">{formatCurrency(amount, currency)}</span>) ?? "—"}
-          note={estimatedTax ? estimatedTax.rate + "% of payments received this month" : <Link href="/settings" className="bf-link">Set your tax rate in Settings</Link>}
+          value={estimatedTax?.amounts.map(({ currency, amount }) => <span key={currency} className="block">{formatCurrency(Math.ceil(amount), currency, 0)}</span>) ?? "—"}
+          note={estimatedTax ? estimatedTax.rate + "% of payments received this month, rounded up" : <Link href="/settings" className="bf-link">Set your tax rate in Settings</Link>}
           icon={Percent}
         />
         <MetricCard label="Outstanding" value={formatCurrency(metrics.outstandingRevenue)} note="Balance remaining across your invoices" icon={Clock3} />

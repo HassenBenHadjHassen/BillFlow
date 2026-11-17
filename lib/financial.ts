@@ -114,18 +114,18 @@ export function calculateInvoicePaymentStatus(
 /**
  * Format currency with locale and symbol
  */
-export function formatCurrency(amount: number, currency: string = 'EUR'): string {
+export function formatCurrency(amount: number, currency: string = 'EUR', fractionDigits = 2): string {
   try {
     const formatted = new Intl.NumberFormat('fr-FR', {
       style: 'currency',
       currency: currency || 'EUR',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
     }).format(amount);
     // Replace narrow non-breaking spaces with standard space for broad compatibility
     return formatted.replace(/[\u202F\u00A0]/g, ' ');
   } catch {
-    return `${amount.toFixed(2)} ${currency}`;
+    return `${amount.toFixed(fractionDigits)} ${currency}`;
   }
 }
 
